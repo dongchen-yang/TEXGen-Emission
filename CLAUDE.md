@@ -36,15 +36,7 @@ python launch.py --config configs/lightgen_pointuv_256_batch32_emissive_74k.yaml
 # With W&B logging
 python launch.py --config <config.yaml> --gpu 0 --train --wandb
 
-# SLURM cluster (1k baseline on fir; uses ~/scratch baked_uv_local_subset.tar)
-sbatch slurm_train.sh
-
-# SLURM cluster (74k scaled on fir; auto extracts NPZ tars to $SLURM_TMPDIR)
-sbatch slurm_train_74k.sh
-# Variant wrappers: scripts/fir/texgen_256_batchsize32_filter_emission*.sh
-
-# Per-GPU max-batch probe on fir (H100; runs 3 forward+backward steps per bs)
-DATA_ROOT=$SLURM_TMPDIR/baked_uv bash batch_sweep.sh
+# fir variant wrappers (1k filtered configs): scripts/fir/texgen_256_batchsize32_filter_emission*.sh
 ```
 
 ### Testing / Inference
@@ -169,7 +161,7 @@ Two scales coexist. Pick based on the config you're running.
 - **Locations**:
     - Jupiter NFS (archive, source of truth): `/cs/3dlg-jupiter-project/lightgen/dataset/{npz,glb}_chunk_*.tar` + `thumbnails_emissive.tar`
     - Fir Lustre `/scratch` (ready for training): `/home/dya78/scratch/lightgen/data/tars/{npz,glb}_chunk_*.tar` + `thumbnails_emissive.tar`
-- **Job-time staging**: `slurm_train_74k.sh` extracts the 8 NPZ tars (~2 min via `detar_progress.py`, parallel-of-8 with single tqdm bar) **plus** the thumbnail tar (~30 s) into `$SLURM_TMPDIR/baked_uv/` on job start. Total extracted ~468 GB into node-local SSD. GLB tars stay on `/scratch` — only needed for downstream evaluation, not training.
+- **Job-time staging**: the fir 74k launcher (`slurm_train_74k.sh`, deleted 2026-09-29) extracted the 8 NPZ tars (~2 min via `detar_progress.py`, parallel-of-8 with single tqdm bar) **plus** the thumbnail tar (~30 s) into `$SLURM_TMPDIR/baked_uv/` on job start. Total extracted ~468 GB into node-local SSD. GLB tars stay on `/scratch` — only needed for downstream evaluation, not training.
 
 ### Data Migration (2026-04-23, with thumbnail follow-up 2026-04-28)
 
@@ -404,7 +396,7 @@ bf16-mixed precision throughout. `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:Tr
 
 ### 74k batch-size sweep on H100 (2026-04-27)
 
-Per-GPU memory probe on a single H100 80 GB (`bash batch_sweep.sh`, 3 train batches per bs, no val/test):
+Per-GPU memory probe on a single H100 80 GB (with `batch_sweep.sh`, deleted 2026-09-29; 3 train batches per bs, no val/test):
 
 | bs | Peak VRAM | Verdict |
 |---|---|---|

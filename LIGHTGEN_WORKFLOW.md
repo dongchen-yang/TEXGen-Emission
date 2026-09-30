@@ -33,9 +33,7 @@ conda run -n texgen bash -c 'python launch.py --config configs/lightgen_pointuv_
 # Full 1k-style filtered baseline
 conda run -n texgen bash -c 'python launch.py --config configs/lightgen_pointuv_256_batch32_emission_filtered.yaml --gpu 0 --train --wandb'
 
-# 74k on fir (production)
-sbatch slurm_train_74k.sh
-# or the fir wrappers:
+# fir wrappers (1k filtered configs):
 bash scripts/fir/texgen_256_batchsize32_filter_emission.sh
 bash scripts/fir/texgen_256_batchsize32_filter_emission_gt_mask_condition.sh
 bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_semantic.sh
@@ -43,17 +41,12 @@ bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_lambda001.sh
 bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_lambda001_balanced.sh
 ```
 
-`slurm_train.sh` — older 1k fir path. `batch_sweep.sh` — per-GPU max-batch probe on fir.
-
 ## Infer / evaluate samples
 
 ```bash
 conda run -n texgen bash -c 'python launch.py --config <config.yaml> --gpu 0 --test system.resume=/path/to/checkpoint.ckpt'
 conda run -n texgen bash -c 'python inference_specific_samples.py'
 ```
-
-Related: `render_inference_blender.py`, `render_inference_multiview.py`,
-`filter_local_subset_emission.py`, `filter_dataset.py`, `precompute_clip_embeddings.py`.
 
 ## Do not change casually
 
