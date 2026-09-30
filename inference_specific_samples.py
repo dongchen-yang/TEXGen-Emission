@@ -320,69 +320,11 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
         print("\n8. Creating overall visualization...")
         create_overall_visualization(all_results, output_dir)
 
-    # Render multiview images with emission textures using Blender
-    print("\n9. Rendering multiview images with Blender...")
-    render_blender_multiview(sample_indices, output_dir)
-
     print("\n" + "=" * 80)
     print("✓ Inference Complete!")
     print(f"Results saved to: {output_dir}")
     print(f"Settings: EMA={use_ema and val_with_ema}, data_normalization={data_normalization}")
     print("=" * 80)
-    print("\nBlender multiview rendering will be attempted next...")
-
-
-def render_blender_multiview(sample_indices, output_dir):
-    """Render multiview images using Blender instead of NVDiffRast."""
-    import subprocess
-    import sys
-    import os
-
-    # Get the path to the Blender render script
-    blender_script = os.path.join(os.path.dirname(__file__), "render_inference_blender.py")
-
-    # Find Blender executable
-    blender_exe = None
-    possible_paths = [
-        "/localhome/dya78/software/blender-3.2.0-linux-x64/blender",  # From .zshrc
-        "blender",  # If in PATH
-        "/usr/bin/blender",
-        "/usr/local/bin/blender"
-    ]
-
-    for path in possible_paths:
-        if os.path.exists(path) or (path == "blender" and subprocess.run(["which", "blender"], capture_output=True).returncode == 0):
-            blender_exe = path
-            break
-
-    if blender_exe is None:
-        print("ERROR: Blender executable not found!")
-        print("Please ensure Blender is installed and in your PATH, or update the path in render_blender_multiview()")
-        return
-
-    # Run the Blender rendering script with Blender
-    cmd = [blender_exe, "--background", "--python", blender_script, "--inference-dir", str(output_dir)]
-
-    print(f"Running: {' '.join(cmd)}")
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.dirname(blender_script))
-
-        if result.returncode == 0:
-            print("Blender rendering completed successfully!")
-            # Print any output
-            if result.stdout:
-                print("STDOUT:", result.stdout[-500:])  # Last 500 chars
-        else:
-            print(f"Blender rendering failed with return code {result.returncode}")
-            if result.stderr:
-                print("STDERR:", result.stderr[-1000:])  # Last 1000 chars
-            if result.stdout:
-                print("STDOUT:", result.stdout[-500:])  # Last 500 chars
-
-    except Exception as e:
-        print(f"Failed to run Blender rendering: {e}")
-
-
 
 
 def create_overall_visualization(all_results, output_dir):
