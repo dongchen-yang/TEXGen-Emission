@@ -33,12 +33,6 @@ conda run -n texgen bash -c 'python launch.py --config configs/lightgen_pointuv_
 # Full 1k-style filtered baseline
 conda run -n texgen bash -c 'python launch.py --config configs/lightgen_pointuv_256_batch32_emission_filtered.yaml --gpu 0 --train --wandb'
 
-# fir wrappers (1k filtered configs):
-bash scripts/fir/texgen_256_batchsize32_filter_emission.sh
-bash scripts/fir/texgen_256_batchsize32_filter_emission_gt_mask_condition.sh
-bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_semantic.sh
-bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_lambda001.sh
-bash scripts/fir/texgen_256_batchsize32_filter_emission_cls_lambda001_balanced.sh
 ```
 
 ## Infer / evaluate samples

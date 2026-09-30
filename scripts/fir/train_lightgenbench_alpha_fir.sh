@@ -4,7 +4,8 @@
 # paper's code; only the data is new.
 #
 # THIS IS A DATA PORT OF scripts/fir/train_74k_v2_alpha_agentic_fir.sh, the launcher of the
-# paper run's fir port. Everything outside the data section is that file's, unchanged, and
+# paper run's fir port (deleted from main 2026-09-29; read it with
+# `git show texgen-74k-v2-venus05:scripts/fir/train_74k_v2_alpha_agentic_fir.sh`). Everything outside the data section is that file's, unchanged, and
 # its header explains each piece (the pin overlay, TEXGEN_ENABLE_FLASH=0,
 # SLURM_JOB_NAME=bash, the offline HF cache, the sick-node guard, 24 h segments with
 # --requeue + auto_resume). Deltas, all forced by the data:
@@ -25,8 +26,8 @@
 #     (fir, 2026-09-19) peaked at 76.15 GB by step ~50 and OOM'd an 80 GB H100 at step ~57,
 #     where the paper run peaked at 65.56 GB on the same card. 4 ranks x 16 x 2 is still
 #     GLOBAL BATCH 128, and Lightning counts OPTIMIZER steps as global_step, so
-#     steps/epoch (285), T_max and max_epochs keep their meaning (the vulcan launcher's
-#     pattern). EMA needs no change: LitEma updates once per micro-batch, but its decay is
+#     steps/epoch (285), T_max and max_epochs keep their meaning (the deleted vulcan
+#     launcher's pattern). EMA needs no change: LitEma updates once per micro-batch, but its decay is
 #     min(0.9999, (1+n)/(10+n)) and the cap never binds in this run (n < 89,990), so two
 #     updates per optimizer step give 1 - 9/(5+s) where the paper run had 1 - 9/(10+s).
 #     The config keeps batch_size 32, which is right for a 96 GB card; this launcher
@@ -70,7 +71,7 @@ MAIL_USER=${MAIL_USER:-yangdongchen1@gmail.com}
 # fir's H100 pool is usually congested and these are BYNODE partitions, so a 4-GPU request
 # waits for a whole free node. Queue the real run behind the probe so it accrues queue age
 # while the probe runs, instead of starting that wait from scratch afterwards:
-#   DEPENDENCY=afterok:<probe_jobid> bash scripts/fir/train_74k_v2_alpha_agentic_fir.sh
+#   DEPENDENCY=afterok:<probe_jobid> bash scripts/fir/train_lightgenbench_alpha_fir.sh
 DEPENDENCY=${DEPENDENCY:-}
 
 # sha256 of the release's splits.json (2026-09-18), the same value stage_hf.sh pins.
@@ -203,7 +204,7 @@ if not sys.executable.startswith(want_venv):
 if os.environ.get("TEXGEN_ENABLE_FLASH") != "0":
     sys.exit("TEXGEN_ENABLE_FLASH must be 0 on fir: flash_attn imports here but not on the venus arms")
 import transformers, diffusers, huggingface_hub, omegaconf
-# The four packages bootstrap_texgen_bw.sh hard-pins on venus. Anything else in this env
+# The four packages bootstrap_texgen_bw.sh (deleted from main 2026-09-29) hard-pins on venus. Anything else in this env
 # is allowed to differ (this is an acknowledged cross-site run), but the conditioning
 # stack the model actually consumes must match, or the comparison loses its meaning.
 for name, mod, want in (("transformers", transformers, "4.28.1"),
