@@ -3,10 +3,13 @@
 # on a MIG slice (fir's eval rule), the paper run's code and venv, TEXGEN_ENABLE_FLASH=0.
 #
 #   SEED=0 sbatch scripts/fir/infer_lightgenbench_fir.sh     # from the TEXGen clone on fir
+# (On main this file is scripts/internal/fir/infer_lightgenbench_fir.sh; the fir clone checks out branch
+# texgen-74k-v2-venus05, where it is still scripts/fir/infer_lightgenbench_fir.sh, so the usage above uses that path;
+# the body, REPO's `../..` included, assumes that layout too.)
 #
 # Reads CKPT (default: the epoch-124 checkpoint of texgen_alpha_lightgenbench_v1, with its
 # configs/parsed.yaml two levels up, which inference_samples loads) and the release's test tars
-# staged by scripts/lightgenbench/stage_hf.sh. Writes $OUT/pred_seed0N/<uuid>/pred_emission.png and
+# staged by scripts/internal/fir/stage_hf.sh. Writes $OUT/pred_seed0N/<uuid>/pred_emission.png and
 # refuses to report success unless all 200 exist.
 #SBATCH -J texgen_lightgenbench_infer
 #SBATCH --account=def-msavva_gpu

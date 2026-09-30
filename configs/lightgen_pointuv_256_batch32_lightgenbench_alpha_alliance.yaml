@@ -22,7 +22,7 @@
 #
 # SITE: any Alliance cluster with 4 x H100 80 GB. No path in this file names a cluster:
 # the data paths resolve into $SLURM_TMPDIR, and the launcher overrides exp_root_dir and
-# checkpoint.dirpath on the command line. Launcher: scripts/fir/train_lightgenbench_alpha_fir.sh.
+# checkpoint.dirpath on the command line. Launcher: scripts/internal/fir/train_lightgenbench_alpha_fir.sh.
 # TEXGEN_ENABLE_FLASH=0 is set by the launcher, as for every arm of the paper.
 #
 # ---- inherited from the alpha baseline config, unchanged ----

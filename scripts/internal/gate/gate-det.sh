@@ -7,7 +7,7 @@ ROOT=${1:?texgen root}; OUT=${2:?out dir}; CKPT=${3:?checkpoint}
 REPO=/local-scratch/localhome/dya78/code/lightgen
 L=/local-scratch/localhome/dya78/lightgen_eval_local
 # Optional 4th argument: a shapes list (one sha per line). Default: all 204 test shapes (~24 min);
-# scripts/gate/subset20.txt runs 20 of them (~3 min). Each shape's seed depends only on its sha.
+# scripts/internal/gate/subset20.txt runs 20 of them (~3 min). Each shape's seed depends only on its sha.
 SHAS=${4:-$L/test_agentic_clean.txt}
 export TEXGEN_ENABLE_FLASH=0 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 set +u; source /localhome/dya78/software/miniconda3/etc/profile.d/conda.sh; conda activate /localhome/dya78/software/miniconda3/envs/texgen; set -u

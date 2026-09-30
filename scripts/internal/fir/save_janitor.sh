@@ -21,6 +21,8 @@
 # or waiting to be requeued); once it is gone, a last pass tars the newest dir too.
 #
 #   sbatch scripts/fir/save_janitor.sh        # from the repo clone on fir
+# (On main this file is scripts/internal/fir/save_janitor.sh; the fir clone checks out branch
+# texgen-74k-v2-venus05, where it is still scripts/fir/save_janitor.sh, so the usage above uses that path.)
 set -uo pipefail
 
 SAVE=${SAVE:-/scratch/dya78/lightgen/texgen_runs/lightgen/texgen_alpha_lightgenbench_v1/save}

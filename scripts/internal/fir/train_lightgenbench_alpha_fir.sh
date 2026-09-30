@@ -10,7 +10,7 @@
 # SLURM_JOB_NAME=bash, the offline HF cache, the sick-node guard, 24 h segments with
 # --requeue + auto_resume). Deltas, all forced by the data:
 #   * the archives are the release's own tars, downloaded and sha256-checked once by
-#     scripts/lightgenbench/stage_hf.sh into ${DATA}/lightgenbench (80 files);
+#     scripts/internal/fir/stage_hf.sh into ${DATA}/lightgenbench (80 files);
 #   * every segment unpacks the 39 atlas + 39 thumbnail tars (~75 GB) into
 #     $SLURM_TMPDIR, renaming <uuid>/atlas.npz -> <uuid>/somage.npz and
 #     <uuid>/thumbnail.png -> thumbnails/<uuid>.png as it goes, which is the layout the
@@ -37,9 +37,11 @@
 #   # probe first — separate output dir, so auto_resume can never find it later:
 #   OUT_SUFFIX=_probe WALLTIME=3:00:00 \
 #     EXTRA="trainer.max_steps=30 trainer.limit_val_batches=2" \
-#     bash TEXGen/scripts/fir/train_lightgenbench_alpha_fir.sh
+#     bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 #   # full run:
-#   bash TEXGen/scripts/fir/train_lightgenbench_alpha_fir.sh
+#   bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
+# (In a fir clone on branch texgen-74k-v2-venus05 this file is scripts/fir/train_lightgenbench_alpha_fir.sh;
+# the job body below checks out that branch, so its paths use that layout.)
 #
 # Score at epoch 124 / step 35,625 (125 epochs x 285 steps).
 set -euo pipefail
@@ -71,7 +73,7 @@ MAIL_USER=${MAIL_USER:-yangdongchen1@gmail.com}
 # fir's H100 pool is usually congested and these are BYNODE partitions, so a 4-GPU request
 # waits for a whole free node. Queue the real run behind the probe so it accrues queue age
 # while the probe runs, instead of starting that wait from scratch afterwards:
-#   DEPENDENCY=afterok:<probe_jobid> bash scripts/fir/train_lightgenbench_alpha_fir.sh
+#   DEPENDENCY=afterok:<probe_jobid> bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 DEPENDENCY=${DEPENDENCY:-}
 
 # sha256 of the release's splits.json (2026-09-18), the same value stage_hf.sh pins.

@@ -12,6 +12,8 @@
 #
 #   sbatch --account=def-msavva_cpu scripts/lightgenbench/stage_hf.sh     # fir
 #   bash scripts/lightgenbench/stage_hf.sh                                # a login node
+# (On main this file is scripts/internal/fir/stage_hf.sh; the fir clone checks out branch
+# texgen-74k-v2-venus05, where it is still scripts/lightgenbench/stage_hf.sh, so the usage above uses that path.)
 #
 # What lands in $DEST (80 files, so the /scratch inode quota does not notice):
 #   splits.json, checksums.sha256
