@@ -7,7 +7,6 @@ __pycache__/
 # Model outputs and checkpoints
 output*/
 outputs/
-assets/checkpoints/*.ckpt
 *.ckpt
 
 # Training logs and artifacts

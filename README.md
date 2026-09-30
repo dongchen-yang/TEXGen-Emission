@@ -71,6 +71,10 @@ pip install -r requirements.txt
 ```
 
 ## Usage
+> **LightGen fork:** upstream's demo data (`assets/`), render tools (`tools/`) and
+> `configs/texgen_test.yaml` are not in this fork, so this section does not run here; it is kept as
+> upstream's reference. The originals are in [upstream TEXGen](https://github.com/CVMI-Lab/TEXGen).
+
 We provide the example testing data in `assets/models`. You can organize your own customized data as below:
 ```shell
 $YOUR_DATA_PATH
