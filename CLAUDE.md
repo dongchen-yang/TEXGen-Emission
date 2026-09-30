@@ -8,8 +8,8 @@
 
 There are exactly **3 baseline variants**. Variant→config table: canonical copy in the parent repo at
 [`docs/baselines/texgen.md`](../docs/baselines/texgen.md) (do not restate here). Active workflow map:
-[`LIGHTGEN_WORKFLOW.md`](LIGHTGEN_WORKFLOW.md). Superseded overfit10 / sweep configs and stale docs live
-under `deprecated/` (not `deprecated/configs/` of older pretrained variants — those were never in this tree).
+[`LIGHTGEN_WORKFLOW.md`](LIGHTGEN_WORKFLOW.md). Superseded overfit10 / sweep configs and stale docs were
+deleted 2026-09-29; git history keeps them (tag `pre-trim-2026-09-16`).
 
 Upstream README's `configs/texgen_test.yaml` inference command is broken in this fork (config deleted in
 39c0452). `requirements_125.txt` is the fork-authoritative requirements file for the `texgen` env.
@@ -167,7 +167,7 @@ Two scales coexist. Pick based on the config you're running.
 
 The 74k subset was migrated from `/cs/3dlg-falas/` symlinks to standalone tar archives so it's portable to clusters without 3dlg-falas access (i.e. fir).
 
-- Manifests + drivers under `deprecated/_staging_migrate/` on the workstation:
+- Manifests + drivers were under `deprecated/_staging_migrate/` on the workstation (no longer present):
     - `manifests/{npz,glb}_chunk_*.paths` (74,353 ditem_ids resolved to shard/id; 8 chunks of ~9,295 each)
     - `tar_driver.sh` — builds 8+8 tars on jupiter NFS reading from /cs/3dlg-falas (4h 31m wall time)
     - `rsync_driver.sh` — pushes tars jupiter→fir over WAN (8h 32m wall time at ~42 MB/s)
@@ -378,11 +378,12 @@ Sweep of `lambda_pred_mask_cls` ∈ {0.0 (vanilla), 0.01, 0.1, 1.0, 10.0}. All o
 | Lambda | Config |
 |--------|--------|
 | 0.01 | `configs/lightgen_pointuv_overfit_mask_cls_lambda001.yaml` (kept active) |
-| 0.1 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda01.yaml` |
+| 0.1 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda01.yaml` (deleted 2026-09-29) |
 | 1.0 | `configs/lightgen_pointuv_overfit_mask_cls.yaml` (baseline overfit) |
-| 10.0 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda10.yaml` |
+| 10.0 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda10.yaml` (deleted 2026-09-29) |
 
-Sweep script (archived): `deprecated/scripts/root/run_mask_cls_lambda_sweep.sh`
+Sweep script: `deprecated/scripts/root/run_mask_cls_lambda_sweep.sh` (deleted 2026-09-29; the tag
+`pre-trim-2026-09-16` keeps it and both configs above)
 
 ## Hardware Requirements
 

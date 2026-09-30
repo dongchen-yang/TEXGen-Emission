@@ -2,7 +2,7 @@
 
 Short map of what to use for emission training/inference. Upstream TEXGen
 docs remain in `README.md`; agent notes in `CLAUDE.md`. Archived experiments
-live under `deprecated/`.
+were deleted 2026-09-29; git history keeps them (tag `pre-trim-2026-09-16`).
 
 ## Active configs (`configs/`)
 

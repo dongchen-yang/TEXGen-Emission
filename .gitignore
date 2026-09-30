@@ -25,13 +25,5 @@ videos/
 # Python version management
 .python-version
 
-# Generated comparison / render outputs
-comparison_overfit/
-render_outputs/
-deprecated/comparisons/generated/
-
-# Local Claude settings under archived experiment dirs
-deprecated/scripts/**/.claude/
-
 # Agent worktrees — checkouts of this same repo, never source
 .claude/worktrees/
