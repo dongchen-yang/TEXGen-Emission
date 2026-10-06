@@ -1,6 +1,6 @@
 """LightgenBench splits.json -> the two index files the paper loader reads.
 
-spuv/data/lightgen_uv.py is used unchanged. It takes
+The loader (spuv/data/mesh_uv.py; configs name it spuv.data.lightgen_uv) is used unchanged. It takes
   * a parquet whose index is the sample id and whose `ditem_dir` column is the sample's
     directory under data_root (rows with success != True are dropped), and
   * a split JSON {"train"|"val"|"test": {"indices": [...]}} of POSITIONAL indices into
@@ -50,7 +50,7 @@ def build(splits, out_dir):
 
 
 def check(splits, out_dir):
-    # Same read and filter as LightGenDataset._load_from_parquet / _apply_indices.
+    # Same read and filter as ObjaverseDataset._load_from_parquet / _apply_indices (spuv/data/mesh_uv.py).
     df = pd.read_parquet(os.path.join(out_dir, PARQUET))
     df = df[df["success"] == True]  # noqa: E712
     ids = [str(x) for x in df.index]

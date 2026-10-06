@@ -84,6 +84,10 @@ data_cls: spuv.data.lightgen_uv.LightGenDataModule
 backbone_cls: spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet
 image_tokenizer_cls: spuv.models.tokenizers.clip.ClipTokenizer
 ```
+`spuv/data/lightgen_uv.py` only re-exports: the loader is upstream's `spuv/data/mesh_uv.py`, edited
+in place (`ObjaverseDataModule`, `ObjaverseDataset`, `ObjaverseDataModuleConfig` are our
+`LightGenDataModule`, `LightGenDataset`, `LightGenDataModuleConfig`); `git diff upstream/main --
+spuv/data/mesh_uv.py` shows what we changed.
 
 ### Backbone: LightGenPointUVNet
 Modified PointUVNet operating on **pre-baked UV data** (no online rasterization). 5-stage encoder-decoder:
@@ -188,7 +192,7 @@ The 74k subset was migrated from `/cs/3dlg-falas/` symlinks to standalone tar ar
 
 PyTorch Lightning auto-injects `DistributedSampler` for every dataloader under DDP, including val/test. With 4 ranks, each rank only sees 1/4 of the val/test set, and only rank 0 logs to wandb — so the qualitative panel shows only 1/4 of the visualizations vs the 1k baseline (28 of 112 val samples observed in first 74k run vs 109 in `htiandl5`).
 
-**Fix in `lightgen_uv.py`** (commit 056a5ad, 2026-04-28): `val_dataloader()`, `test_dataloader()`, and `predict_dataloader()` pass an explicit `SequentialSampler`. Lightning respects an explicit sampler and skips its auto-shard. Every rank now evaluates the full val/test set in parallel (same wall-time as 1-rank since they're independent on each GPU; 4× redundant compute on val, but val is < 1% of total job time). Train still uses Lightning's auto `DistributedSampler` (we want sharded training).
+**Fix in the loader** (commit 056a5ad, 2026-04-28, in `lightgen_uv.py`; now `spuv/data/mesh_uv.py`): `val_dataloader()`, `test_dataloader()`, and `predict_dataloader()` pass an explicit `SequentialSampler`. Lightning respects an explicit sampler and skips its auto-shard. Every rank now evaluates the full val/test set in parallel (same wall-time as 1-rank since they're independent on each GPU; 4× redundant compute on val, but val is < 1% of total job time). Train still uses Lightning's auto `DistributedSampler` (we want sharded training).
 
 ## Config System
 

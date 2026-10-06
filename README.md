@@ -74,6 +74,8 @@ pip install -r requirements.txt
 > **LightGen fork:** upstream's demo data (`assets/`), render tools (`tools/`) and
 > `configs/texgen_test.yaml` are not in this fork, so this section does not run here; it is kept as
 > upstream's reference. The originals are in [upstream TEXGen](https://github.com/CVMI-Lab/TEXGen).
+> The data layout below is what upstream's `spuv/data/mesh_uv.py` read; in this fork that loader
+> reads pre-baked UV atlases (`somage.npz`) instead.
 
 We provide the example testing data in `assets/models`. You can organize your own customized data as below:
 ```shell

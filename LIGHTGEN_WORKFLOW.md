@@ -34,7 +34,8 @@ commands in `CLAUDE.md` § Checking a code change.
 
 ## Do not change casually
 
-- `spuv/data/lightgen_uv.py` — atlas encoding contract (somage / uv_voxel_pipeline parity).
+- `spuv/data/mesh_uv.py` (the loader; `spuv/data/lightgen_uv.py` re-exports it under the published
+  class path) — atlas encoding contract (somage / uv_voxel_pipeline parity).
 - Production checkpoints live on fir / Jupiter (`/cs/3dlg-jupiter-project/lightgen/TEXGen/outputs`), not in local `outputs/`.
 
 ## Env

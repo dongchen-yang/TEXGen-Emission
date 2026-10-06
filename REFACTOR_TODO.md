@@ -105,7 +105,8 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
    linear, [0, 1], masked, the input atlas's UV layout.
 6. The `TEXGEN_ENABLE_FLASH` switch in `spuv/models/sparse_networks/texgen_network.py:49` (star2 sbatch
    files grep for it).
-7. The loader contract (`spuv/data/lightgen_uv.py`): `<data_root>/<ditem_dir>/somage.npz`,
+7. The loader contract (`spuv/data/mesh_uv.py` since 8a; `spuv/data/lightgen_uv.py` re-exports it):
+   `<data_root>/<ditem_dir>/somage.npz`,
    `<data_root>/thumbnails/<sha>.png` (the CLIP input), parquet with `ditem_dir` and `success`, split
    indices = positions over `success==True` rows, alpha from the npz or an `alpha.npy` sidecar,
    positions decoded from [−2, 2].
@@ -251,7 +252,7 @@ Each fold moves our code into the original file, editing upstream's classes and 
 our file becomes a one-line alias for the published class path. One commit per fold, full gate after
 each, in this order. Needs step 7 first.
 
-- [ ] 8a. Data: `lightgen_uv.py` → `mesh_uv.py`. Full gate on all four files plus the training check.
+- [x] 8a. Data: `lightgen_uv.py` → `mesh_uv.py`. Full gate on all four files plus the training check.
 - [ ] 8b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
 - [ ] 8c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
   overrides a method only it defines). Our methods replace upstream's in place (for example
@@ -273,6 +274,18 @@ edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s 
 
 **Result:**
 
+- 8a. The loader is upstream's `spuv/data/mesh_uv.py`, edited in place: upstream's names stay
+  (`ObjaverseDataModuleConfig`, `ObjaverseDataset`, `ObjaverseDataModule`), our bodies moved verbatim
+  (AST-checked), upstream pieces we do not use untouched (the scene-list parser, `vertex_transform`,
+  `ObjaverseDataset.collate`, `__main__`, the unread config fields `uv_channel`, `mesh_name`,
+  `uv_name`). `spuv/data/lightgen_uv.py` re-exports it under our old names. Both published
+  `parsed.yaml` data sections are accepted and merge to the same values. Observable: the class
+  `__name__` and `__module__` (no checkpoint records the data module). Checks against
+  `pre-refactor`, all IDENTICAL: the paper gate, 204 shapes, all four files, on sp4090 against the
+  workstation's `det1`; the release gate and the resume check on sp4090 against the workstation
+  runs; the fresh check on an L40S (cs-venus-16, job 292117) against the L40S run. The workstation
+  runs were killed by the kernel's OOM killer (another session filled its 62 GB of RAM) and moved.
+
 ### 9. Coverage run (no code change)
 
 A training config (the paper checkpoint's `configs/parsed.yaml` or the release config) under a
@@ -289,6 +302,9 @@ the lines that never run. "Never ran" is not "dead" for the flash branch or the 
 ### 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 
 Keep the `inference_samples(...)` signature and `sample_seed`.
+
+- [x] `mesh_uv.py`'s `data_root` and `parquet_file` defaults are empty and must be set (were
+  workstation paths; done early, Dongchen 2026-10-07).
 
 - [ ] `:84` falls back to the missing `configs/lightgen_pointuv_256_batch32_pretrained.yaml`.
 - [ ] `:96-97` default data root and parquet under `/localhome/dya78/code/lightgen/data/baked_uv`
@@ -408,6 +424,12 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
   entry); the stale "main has no flash gate" comments in
   `../evaluation/newdata_eval/run_texgen_infer.py:15-18`, `infer_texgen_v2_venus05.sbatch:6`,
   `sweeps/stage_texgen_host.sh:46`.
+- [ ] Loader pointers (since 8a the loader is `spuv/data/mesh_uv.py`; `spuv/data/lightgen_uv.py`
+  only re-exports, so every name below still resolves): comments and mirrored constants in
+  `../data_processing/data_preparation/{atlas.py:5,contract.py:8,multiview.py:335}` and
+  `tests/test_encoding_parity.py:5,17,53`; docs `../data_processing/data_preparation/README.md:45,56`,
+  `../docs/baselines/texgen.md:35`, `../.claude/rules/texgen.md:72`. The import in
+  `../evaluation/pointsampled/texgen_infer.py:23` works through the alias.
 - [ ] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too?
 
 **Instructions:**
