@@ -14,18 +14,18 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 - [x] 4. Upstream demo material
 - [x] 5. Launchers (before the configs they use)
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
-- [ ] 6. Configs
-- [ ] 7. Orphaned modules
+- [x] 6. Configs
+- [ ] 7. Fold our modules into upstream's originals (direct edits; after step 8)
 - [ ] 8. Training-check setup (no code change)
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [ ] 11. Explicit imports (no behavior change)
 - [ ] 12. Render, mesh and perceptual code off the live path
-- [ ] 13. Modules orphaned by step 12
+- [ ] 13. ~~Modules orphaned by step 12~~ dropped (D9: unused upstream files stay untouched)
 - [ ] 14. Loss branches (training code)
-- [ ] 15. Overridden upstream methods and disabled blocks
+- [ ] 15. Overridden upstream methods and disabled blocks (mostly absorbed by 7c)
 - [ ] 16. `saving.py` and the memory tracker
-- [ ] 17. Flatten the class chain
+- [ ] 17. Flatten the class chain (absorbed by 7c)
 - [ ] 18. `launch.py`
 - [ ] 19. Environment files
 - [ ] 20. Docs
@@ -46,6 +46,10 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 - Parent pointer bumps use a path-limited commit, `git commit -- TEXGen`: the parent working tree
   carries other sessions' uncommitted work.
 - Nothing is pushed without Dongchen's go.
+- Our changes are edits to upstream's original modules, not new parallel modules (Dongchen,
+  2026-10-06), so `git diff upstream/main -- <file>` shows exactly what was modified; a file of ours
+  that only keeps a published class path alive is a one-line alias. `git diff --stat upstream/main
+  HEAD -- spuv launch.py` lists every modified upstream file.
 - From step 6 on, all edits happen in the worktree `.claude/worktrees/refactor` (branch `refactor`);
   `git diff pre-refactor` there shows every edit since the tag. The main checkout stays on `main`, so
   the parent's scripts that default to `TEXGen/` keep running the unchanged code. The gate's
@@ -144,6 +148,14 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   merge is pushed). Open: when the parent pointer is bumped (still `6096a63`).
 - [ ] **D8 Cut-over** (before step 21). After the refactor, do the launchers, the worktree and the staged
   `TEXGen.tar` move to `main`, or stay on the frozen branch?
+- [x] **D9 Upstream code we do not use** (before step 7). Under direct editing, upstream files and
+  blocks our runs never reach (`camera.py`, `isosurface.py`, `networks.py`, `timestep.py`,
+  `spuv/utils/rasterize.py`, upstream's render stack, its star imports): leave them untouched, so
+  `git diff upstream/main` shows only real changes, or delete them? Step 4 already deleted
+  upstream's demo files (`tools/`, `assets/`, two images). Recommended: leave untouched from step 7 on.
+  This decides steps 11, 12, 13, the rest of 15 and part of 16.
+  **Answer (2026-10-06):** untouched. Upstream code changes only where our runs need a change; step
+  4's deletions stay as they are.
 
 ## Steps
 
@@ -273,19 +285,50 @@ Keep only the release config, `configs/lightgen_pointuv_256_batch32_lightgenbenc
 **Instructions:** 2026-10-06: "delete the unneeded configs". D6: the ablation configs went with the
 rest; keeping or dropping their code paths is still open (step 14).
 
-**Result:** TEXGen `refactor`, commit below: 20 files deleted, all kept by tag `pre-refactor` (the
+**Result:** TEXGen `refactor` `b3dc916`: 20 files deleted, all kept by tag `pre-refactor` (the
 paper config also on branch `texgen-74k-v2-venus05`). No code reads any of them (the only code path
 under `configs/` is the release launcher's `CONFIG`, which names the kept file). Nothing pushed.
 
-### 7. Orphaned modules
+### 7. Fold our modules into upstream's originals (direct edits)
 
-Nothing imports these: `spuv/models/networks.py`, `spuv/models/simple_uv_unet.py`,
-`spuv/models/isosurface.py`, `spuv/models/camera.py`, `spuv/models/timestep.py`,
-`spuv/utils/rasterize.py`, and `spuv/data/mesh_uv.py` (its only importer is the `__main__` block of
-`spuv/models/sparse_networks/utils/feature_baking.py:193-245`, which goes with it). Delete
-`spuv/utils/rasterize.py`, **not** the live `spuv/models/renderers/rasterize.py` (same class name).
+Our three main modules are parallel copies of upstream's. Upstream's own config
+(`configs/texgen_test.yaml` on `upstream/main`) names the originals:
 
-**Instructions:**
+| ours (named in every config and `parsed.yaml`) | upstream original |
+|---|---|
+| `spuv/data/lightgen_uv.py` `LightGenDataModule` | `spuv/data/mesh_uv.py` `ObjaverseDataModule` |
+| `spuv/models/sparse_networks/lightgen_pointuvnet.py` `LightGenPointUVNet` (subclass, overrides `forward` to skip the image-feature bake) | `spuv/models/sparse_networks/texgen_network.py` `PointUVNet` |
+| `spuv/systems/lightgen_system.py` `LightGenSystem` (subclass of `texgen_test.TEXGenDiffusion`) | `spuv/systems/texgen_test.py` `TEXGenDiffusion` (on `texgen_base.py`) |
+
+Each fold moves our code into the original file, editing upstream's classes and methods in place,
+so `git diff upstream/main -- <original>` shows exactly what we changed. Our file then shrinks to a
+one-line alias, because the published class paths (Keep stable #2) must still resolve. One commit per
+fold, full gate after each. Order: data, backbone, system.
+
+- [ ] 7a. Data: `lightgen_uv.py` → `mesh_uv.py`. Touches the loader: full gate on all four files,
+  plus the training check (the gate does not exercise the training split).
+- [ ] 7b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
+- [ ] 7c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
+  overrides a base method). `spuv.systems.texgen_base.LossConfig` stays where it is (pickled in the
+  paper checkpoint). Full gate, training check, a resume from a real checkpoint.
+- [ ] 7d. Our other added files: `spuv/models/simple_uv_unet.py` (ours, imported by nothing):
+  delete. `spuv/utils/memory_tracker.py` (ours, used): step 16.
+
+Check during each fold (not yet looked at): what an alias changes that can be observed (the class
+`__name__` in logs, the path new checkpoints pickle, Lightning hparams), and which upstream behavior
+the edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s bake). Replacing it
+is allowed under direct editing; each commit message says what was replaced. Reference: branch
+`restructure-2026-09-16` did the same folds (its tasks T5–T7), but renamed the files
+`texgen_emission_*` and mixed in 7 behavior changes (listed under Later); take neither.
+
+Upstream modules our code does not use at all (`spuv/models/camera.py`, `isosurface.py`,
+`networks.py`, `timestep.py`, `spuv/utils/rasterize.py`): stay untouched (D9).
+
+Needs step 8 (the training check) before 7a.
+
+**Instructions:** 2026-10-06: "what we did was creating new modules for our TEXGen-Emission. I want
+it to be more like the direct editing on the original modules. in this way we can also easily track
+what has been modified." (Replaces the earlier plan for this step: delete the orphaned modules.)
 
 **Result:**
 
@@ -337,6 +380,8 @@ Keep the `inference_samples(...)` signature and `sample_seed`.
 
 Replace the star imports (`nvdiffrast_utils`, `mesh_utils`, `uv_operators`, `emb_utils`,
 `sparse_utils`) with the names actually used, so later steps can see what depends on what.
+Under direct editing (step 7) most of these star imports are upstream's lines; per D9, change only
+the ones in code we already edit.
 
 **Instructions:**
 
@@ -357,7 +402,10 @@ Nothing on the pre-baked UV path renders, but it builds and passes around:
 - [ ] `feature_baking.py`, imported at `texgen_network.py:24` but never called (the bake at
   `texgen_network.py:242` is overridden by `LightGenPointUVNet.forward`).
 
-Depends on step 9. If `nvdiffrast` is dropped, update the import probes (step 19).
+Depends on step 9. If `nvdiffrast` is dropped, update the import probes (step 19). After step 7
+these sit in upstream's files (`lightgen_*.py` line numbers above are from before the folds); per
+D9, remove only what our live path builds and passes around, leave the rest of upstream's render
+code as upstream wrote it.
 
 **Instructions:**
 
@@ -367,6 +415,7 @@ Depends on step 9. If `nvdiffrast` is dropped, update the import probes (step 19
 
 Whatever step 12 leaves unimported (for example `camera_strategy.py`, `nvdiffrast_utils.py`,
 `renderers/rasterize.py`, `lpips.py`, `perceptual_loss.py`, `mesh.py`); the list comes from step 12.
+All of them are upstream files. **Dropped (D9):** they stay untouched.
 
 **Instructions:**
 
@@ -385,7 +434,8 @@ Whatever step 12 leaves unimported (for example `camera_strategy.py`, `nvdiffras
   `use_min_snr_weight` whose `snr_weights` at `texgen_base.py:170-171` is never used,
   `lambda_dark_region`): stop reading them, keep them in the dataclasses (Keep stable #3).
 
-Gate plus training check.
+Gate plus training check. After step 7c these branches sit in `texgen_test.py`; the
+`lightgen_system.py` line numbers above are from before the fold.
 
 **Instructions:**
 
@@ -393,11 +443,17 @@ Gate plus training check.
 
 ### 15. Overridden upstream methods and disabled blocks
 
+Mostly absorbed by step 7c: once `LightGenSystem`'s methods are edited into `texgen_test.py` in
+place, upstream's versions there are replaced rather than overridden. What remains is the
+`texgen_base.py` methods that `texgen_test.py` itself overrides (upstream's own split), which per D9
+stay as upstream wrote them.
+
 - [ ] `spuv/systems/texgen_test.py:35-182` (`prepare_diffusion_data`, `forward`,
   `prepare_condition_info`), all overridden by `LightGenSystem`; the render branch of
-  `on_check_train` (`:219-242`); the disabled 3D-render block from `:444`.
+  `on_check_train` (`:219-242`); the disabled 3D-render block from `:444`. (Step 7c.)
 - [ ] `spuv/systems/texgen_base.py`: `test_step` (`:373-586`, with its own render block), `test_pipeline`
   (`:587`), `validation_step` (`:365`), `on_check_train` (`:302`), all overridden further down.
+  (Upstream's own split; stays untouched, D9.)
 
 **Instructions:**
 
@@ -405,8 +461,9 @@ Gate plus training check.
 
 ### 16. `saving.py` and the memory tracker
 
-- [ ] `spuv/utils/saving.py` (762 lines, 31 methods): only `save_image_grid` and `save_json` are used;
-  the mesh, OBJ, GLB, cubemap and image-sequence savers and the `Mesh` import are upstream leftovers.
+- [ ] ~~`spuv/utils/saving.py` (762 lines, 31 methods): only `save_image_grid` and `save_json` are used;
+  the mesh, OBJ, GLB, cubemap and image-sequence savers and the `Mesh` import are upstream leftovers.~~
+  Dropped (D9): upstream's unused savers stay untouched.
 - [ ] Memory logging: `lightgen_system.py:62-64` (`init_tracker(enabled=True, log_interval=1)`),
   `:284-303`; `spuv/utils/memory_tracker.py`.
 - [ ] Keep the `gc.collect()` / `torch.cuda.empty_cache()` every 5 steps (`texgen_base.py:221-229`)
@@ -417,6 +474,11 @@ Gate plus training check.
 **Result:**
 
 ### 17. Flatten the class chain
+
+Absorbed by step 7c: after the fold the chain is upstream's own, `BaseSystem` → `TEXGenDiffusion`
+(`texgen_base.py`) → `TEXGenDiffusion` (`texgen_test.py`), with `LightGenSystem` only an alias. Merging
+upstream's two `TEXGenDiffusion` levels is not planned (it would rewrite upstream's structure). The
+notes below apply to 7c.
 
 `BaseSystem` (`spuv/systems/base.py`) → `TEXGenDiffusion` (`spuv/systems/texgen_base.py`) →
 `TEXGenDiffusion` again (`spuv/systems/texgen_test.py`, same class name) → `LightGenSystem`
