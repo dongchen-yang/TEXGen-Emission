@@ -22,7 +22,7 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 - [ ] 11. ~~Explicit imports~~ dropped (D9)
 - [ ] 12. Render-only data in our own code (narrowed by D9)
 - [ ] 13. ~~Modules orphaned by step 12~~ dropped (D9: unused upstream files stay untouched)
-- [ ] 14. Loss branches (training code)
+- [x] 14. ~~Loss branches~~ dropped: every loss stays, switched by config
 - [ ] 15. Overridden upstream methods and disabled blocks (absorbed by 7c; the rest stays, D9)
 - [ ] 16. `saving.py` and the memory tracker
 - [ ] 17. Flatten the class chain (absorbed by 7c)
@@ -135,10 +135,14 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   GPU run, loss at step N compared before and after, plus one resume from a real checkpoint. Reseed
   (`pl.seed_everything`) right before `trainer.fit`, because removing LPIPS or a CLIP build shifts the
   CPU random stream. Recommended: yes.
-- [ ] **D6 Paper ablation variants** (before step 6). Keep or drop the GT-mask conditioning and
+- [x] **D6 Paper ablation variants** (before step 6). Keep or drop the GT-mask conditioning and
   mask-classification code paths? Only the 1k and overfit configs use them; the paper mentions the
   GT-mask variant only in commented-out text (`../paper_draft/sec/6_experiment.tex:20`). If kept,
   keep one config per path.
+  **Answer (2026-10-06):** the configs went in step 6; the code paths stay ("we can still keep the
+  losses there. since they can just be adjusted by the config"). GT-mask conditioning is an input
+  option rather than a loss, but it is switched by config the same way
+  (`use_gt_emission_mask_cond`), so it stays too.
 - [x] **D7 Where commits go** (before step 1). Directly on `main`, or on a branch merged when you are
   happy (one merge to undo)? Is this file committed? Pointer bump per step or only at the merge?
   Recommended: a branch; commit this file; bump once at the merge.
@@ -285,7 +289,7 @@ Keep only the release config, `configs/lightgen_pointuv_256_batch32_lightgenbenc
   (see "Due at the merge").
 
 **Instructions:** 2026-10-06: "delete the unneeded configs". D6: the ablation configs went with the
-rest; keeping or dropping their code paths is still open (step 14).
+rest; keeping or dropping their code paths was still open then (later answered: they stay, D6).
 
 **Result:** TEXGen `refactor` `b3dc916`: 20 files deleted, all kept by tag `pre-refactor` (the
 paper config also on branch `texgen-74k-v2-venus05`). No code reads any of them (the only code path
@@ -421,23 +425,20 @@ All of them are upstream files. **Dropped (D9):** they stay untouched.
 
 ### 14. Loss branches (training code)
 
-- [ ] Off in every config ever written (no D6 needed): the bright/dark split, dark region, emission-mask
-  BCE, the `out_channels == 1` mask-only mode (`spuv/systems/lightgen_system.py:229-237,371-381`),
-  inside `get_diffusion_loss` (`:429-647`).
-- [ ] Per D6: mask classification (+ balanced), GT-mask conditioning.
-- [ ] Keep `emissive_threshold` (it feeds the wandb preview, `:335,383`).
-- [ ] Keep the `use_precomputed_clip` loading branch (`spuv/data/lightgen_uv.py:277-281`,
-  `lightgen_system.py:97-101`), unused but kept at Dongchen's request (2026-09-29).
-- [ ] Config keys that only fed them (`render_loss_dict`/`lambda_render_*`, `use_vgg`,
-  `use_min_snr_weight` whose `snr_weights` at `texgen_base.py:170-171` is never used,
-  `lambda_dark_region`): stop reading them, keep them in the dataclasses (Keep stable #3).
+**Dropped: every loss branch stays.** Each is switched on or off by the config, so a branch that no
+current config turns on is an option, not dead code. They move into `texgen_test.py` with step 7c,
+unchanged.
 
-Gate plus training check. After step 7c these branches sit in `texgen_test.py`; the
-`lightgen_system.py` line numbers above are from before the fold.
+- Stays: the bright/dark split, dark region, emission-mask BCE, the `out_channels == 1` mask-only
+  mode (`spuv/systems/lightgen_system.py:229-237,371-381`, inside `get_diffusion_loss` `:429-647`),
+  mask classification (+ balanced), GT-mask conditioning (D6), `emissive_threshold`, the
+  `use_precomputed_clip` loading branch (`spuv/data/lightgen_uv.py:277-281`,
+  `lightgen_system.py:97-101`; kept 2026-09-29), and the config keys that switch them.
 
-**Instructions:**
+**Instructions:** 2026-10-06: "we can still keep the losses there. since they can just be adjusted
+by the config".
 
-**Result:**
+**Result:** nothing to do.
 
 ### 15. Overridden upstream methods and disabled blocks
 
@@ -586,8 +587,8 @@ on jupiter and delete the Solar nodes' `.tree_ok` so they unpack it again.
 - [ ] **Fixes from `restructure-2026-09-16`** (`b4e423f`, `e20b015`, `4ef35a7`; re-apply by hand, the
   files differ): EMA weights on the test pass, the wandb directory, a non-zero exit on interrupt, the
   resume order (and one checkpoint read instead of two), validation metrics synced across GPUs, the
-  training preview panel, the removed noise schedule; the loss guard (`309d3ab`, `bfb2135`), which
-  fits only after step 14.
+  training preview panel, the removed noise schedule; the loss guard (`309d3ab`, `bfb2135`;
+  it rejects a nonzero loss weight that no code reads), which fits after step 7c.
 - [ ] **Tests from `restructure-2026-09-16`** (12 files, including a toy CPU fit/resume test).
 
 ## Due at the merge into `main` (parent repo)
