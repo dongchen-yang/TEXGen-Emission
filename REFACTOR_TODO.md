@@ -8,8 +8,10 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 
 ## Progress
 
-Steps 11, 13, 14, 15 and 17 were removed on 2026-10-06: emptied by D9 and D6, or absorbed by step
-7c. The other steps keep their numbers; the removed text is in this file's history.
+On 2026-10-06 the old steps 11, 13, 14, 15 and 17 were removed (emptied by D9 and D6, or absorbed by
+the system fold) and the open steps were renumbered in the order they run. Old to new, for commit
+messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11, 16 → 12, 18 → 13, 19 → 14,
+20 → 15, 20b → 16, 21 → 17; 9 and 10 kept their numbers. The removed text is in this file's history.
 
 - [x] 1. Housekeeping
 - [x] 2. Dead root scripts and the Blender call
@@ -18,17 +20,17 @@ Steps 11, 13, 14, 15 and 17 were removed on 2026-10-06: emptied by D9 and D6, or
 - [x] 5. Launchers (before the configs they use)
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
 - [x] 6. Configs
-- [ ] 7. Fold our modules into upstream's originals (direct edits; after step 8)
-- [ ] 8. Training-check setup (no code change)
+- [ ] 7. Training-check setup (no code change)
+- [ ] 8. Fold our modules into upstream's originals (direct edits)
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
-- [ ] 12. Render-only data in our own code
-- [ ] 16. The memory tracker
-- [ ] 18. `launch.py`
-- [ ] 19. Environment files
-- [ ] 20. Docs
-- [ ] 20b. Release layer: generic entry points for LightgenBench users
-- [ ] 21. Cut-over (optional, per D8)
+- [ ] 11. Render-only data in our own code
+- [ ] 12. The memory tracker
+- [ ] 13. `launch.py`
+- [ ] 14. Environment files
+- [ ] 15. Docs
+- [ ] 16. Release layer: generic entry points for LightgenBench users
+- [ ] 17. Cut-over (optional, per D8)
 
 ## How we work
 
@@ -85,7 +87,7 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
    `../evaluation/newdata_eval/run_texgen_infer.py:40-46` (the gate's driver) and from
    `scripts/internal/fir/infer_lightgenbench_fir.sh:71-74` (the release inference, branch
    `texgen-74k-v2-venus05`). Legacy caller: `../evaluation/pointsampled/texgen_infer.py` imports
-   `spuv` directly (decide keep or retire in step 20).
+   `spuv` directly (decide keep or retire in step 15).
 2. Class paths loaded from each run's `configs/parsed.yaml` (read as `ckpt/../../configs/parsed.yaml`,
    `inference_specific_samples.py:65-68`): `spuv.systems.lightgen_system.LightGenSystem`,
    `spuv.data.lightgen_uv.LightGenDataModule`,
@@ -114,7 +116,7 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
    step 5, kept on this branch) and `../evaluation/newdata_eval/infer_texgen_v2_venus05.sbatch:78-91` all check it out, and
    the worktree `.claude/worktrees/texgen-v2` sits on it (used by
    `../evaluation/newdata_eval/sweeps/job_texgen.sh:16`, `stage_texgen_host.sh:22`, and pinned in
-   `../evaluation/newdata_eval/tests/test_run_texgen_infer.py:16`). Moving them to `main` is step 21.
+   `../evaluation/newdata_eval/tests/test_run_texgen_infer.py:16`). Moving them to `main` is step 17.
 10. The directory name `TEXGen/` and the `outputs/<run>/{ckpts,configs}` layout.
 
 ## Open decisions
@@ -122,14 +124,14 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
 - [x] **D1 Removal** (before step 2). Delete (tag `pre-trim-2026-09-16` keeps everything) or move to
   `deprecated/` (the current convention; it already holds 54 files)? Recommended: delete.
   **Answer (2026-09-29):** delete.
-- [ ] **D2 Live runs** (before step 8). Paper run only, or paper and release retrain? The inference code
+- [ ] **D2 Live runs** (before step 7). Paper run only, or paper and release retrain? The inference code
   is the same; the release row is in `../docs/evaluation.md:1051`, not in the paper. Recommended:
   both.
-- [ ] **D3 Behavior** (before step 10). Cleanup steps change no behavior (gate `same=204` each time);
+- [ ] **D3 Behavior** (before step 8). Cleanup steps change no behavior (gate `same=204` each time);
   fixes come later, one per step, only if wanted. Recommended: yes.
-- [ ] **D4 Names** (before step 10). Keep `TEXGen/`, the class paths and the inference signature.
+- [ ] **D4 Names** (before step 8). Keep `TEXGen/`, the class paths and the inference signature.
   Recommended: keep.
-- [ ] **D5 Training check** (before step 8). For steps that touch training code: a short deterministic
+- [ ] **D5 Training check** (before step 7). For steps that touch training code: a short deterministic
   GPU run, loss at step N compared before and after, plus one resume from a real checkpoint. Reseed
   (`pl.seed_everything`) right before `trainer.fit`, because removing LPIPS or a CLIP build shifts the
   CPU random stream. Recommended: yes.
@@ -148,14 +150,14 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   `.claude/worktrees/refactor`, started at tag `pre-refactor` (`de78afc` = `main` with steps 1–5b and
   this file committed). Steps 1–5b were committed directly on `main` before that (only the step-1
   merge is pushed). Open: when the parent pointer is bumped (still `6096a63`).
-- [ ] **D8 Cut-over** (before step 21). After the refactor, do the launchers, the worktree and the staged
+- [ ] **D8 Cut-over** (before step 17). After the refactor, do the launchers, the worktree and the staged
   `TEXGen.tar` move to `main`, or stay on the frozen branch?
-- [x] **D9 Upstream code we do not use** (before step 7). Under direct editing, upstream files and
+- [x] **D9 Upstream code we do not use** (before step 8). Under direct editing, upstream files and
   blocks our runs never reach (`camera.py`, `isosurface.py`, `networks.py`, `timestep.py`,
   `spuv/utils/rasterize.py`, upstream's render stack, its star imports): leave them untouched, so
   `git diff upstream/main` shows only real changes, or delete them? Step 4 already deleted
-  upstream's demo files (`tools/`, `assets/`, two images). Recommended: leave untouched from step 7 on.
-  This narrowed steps 12 and 16.
+  upstream's demo files (`tools/`, `assets/`, two images). Recommended: leave untouched from step 8 on.
+  This narrowed steps 11 and 12.
   **Answer (2026-10-06):** untouched. Upstream code changes only where our runs need a change; step
   4's deletions stay as they are. Extended the same day ("for other steps, we can just leave the
   original TEXGen's code there if they are not used"): this also covers unused code *inside* upstream
@@ -223,7 +225,7 @@ hand; `.gitignore` drops `comparison_overfit/`, `render_outputs/`, `deprecated/c
   `.gitignore` rule `assets/checkpoints/*.ckpt` (moved here from step 3; `*.ckpt` still covers
   checkpoints).
 - [x] `static/blocks.jpg` and `static/overview.jpg` (unreferenced). `static/teaser.jpg` stays until the
-  README changes in step 20.
+  README changes in step 15.
 
 **Instructions:** 2026-09-29: go.
 
@@ -245,7 +247,7 @@ Keep only what produced the release results: `scripts/fir/train_lightgenbench_al
   `git show texgen-74k-v2-venus05:scripts/fir/train_74k_v2_alpha_agentic_fir.sh` instead of copying it in).
 
 **Instructions:** 2026-09-29/30: keep only the scripts used for the release results; the kept ones are
-cluster-specific, so split them into a release layer and an internal layer (steps 5b and 20b).
+cluster-specific, so split them into a release layer and an internal layer (steps 5b and 16).
 
 **Result:** TEXGen `b0f7904`: 18 files deleted, all still on branch `texgen-74k-v2-venus05`; the release
 launcher's comments say where the deleted files live, and its usage line, which named the old
@@ -293,7 +295,20 @@ rest; keeping or dropping their code paths was still open then (later answered: 
 paper config also on branch `texgen-74k-v2-venus05`). No code reads any of them (the only code path
 under `configs/` is the release launcher's `CONFIG`, which names the kept file). Nothing pushed.
 
-### 7. Fold our modules into upstream's originals (direct edits)
+### 7. Training-check setup (no code change)
+
+- [ ] A small local training root (N shapes: parquet, split JSON, thumbnails, alpha) and a local-paths
+  override config; the live configs point at `/localscratch/...` and `${SLURM_TMPDIR}`, which do not
+  exist on the workstation. Or reuse
+  `../.superpowers/sdd/2026-09-16-texgen-restructure/cpu_training_smoke/smoke.py`.
+- [ ] Run the check twice on unchanged code to measure its noise before comparing anything.
+- [ ] If D2 = both: pull the release checkpoint and its `configs/parsed.yaml` (rsync + sha256).
+
+**Instructions:**
+
+**Result:**
+
+### 8. Fold our modules into upstream's originals (direct edits)
 
 Our three main modules are parallel copies of upstream's. Upstream's own config
 (`configs/texgen_test.yaml` on `upstream/main`) names the originals:
@@ -309,10 +324,10 @@ so `git diff upstream/main -- <original>` shows exactly what we changed. Our fil
 one-line alias, because the published class paths (Keep stable #2) must still resolve. One commit per
 fold, full gate after each. Order: data, backbone, system.
 
-- [ ] 7a. Data: `lightgen_uv.py` → `mesh_uv.py`. Touches the loader: full gate on all four files,
+- [ ] 8a. Data: `lightgen_uv.py` → `mesh_uv.py`. Touches the loader: full gate on all four files,
   plus the training check (the gate does not exercise the training split).
-- [ ] 7b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
-- [ ] 7c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
+- [ ] 8b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
+- [ ] 8c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
   overrides a method only it defines). Our methods replace upstream's versions in place (for example
   `prepare_diffusion_data`, `forward`, `prepare_condition_info`, `texgen_test.py:35-182`); every loss
   branch moves unchanged (D6). Stays as it is: upstream's render branch of `on_check_train`
@@ -324,8 +339,8 @@ fold, full gate after each. Order: data, backbone, system.
   `test_step` (`:269-494`) runs in validation and `trainer.test`. Keep stable #2 (including
   `spuv.systems.texgen_base.LossConfig`, which stays where it is: the paper checkpoint pickles it),
   #3 and #4. The riskiest fold: full gate, training check, and a resume from a real checkpoint.
-- [ ] 7d. Our other added files: `spuv/models/simple_uv_unet.py` (ours, imported by nothing):
-  delete. `spuv/utils/memory_tracker.py` (ours, used): step 16.
+- [ ] 8d. Our other added files: `spuv/models/simple_uv_unet.py` (ours, imported by nothing):
+  delete. `spuv/utils/memory_tracker.py` (ours, used): step 12.
 
 Check during each fold (not yet looked at): what an alias changes that can be observed (the class
 `__name__` in logs, the path new checkpoints pickle, Lightning hparams), and which upstream behavior
@@ -337,24 +352,11 @@ is allowed under direct editing; each commit message says what was replaced. Ref
 Upstream modules our code does not use at all (`spuv/models/camera.py`, `isosurface.py`,
 `networks.py`, `timestep.py`, `spuv/utils/rasterize.py`): stay untouched (D9).
 
-Needs step 8 (the training check) before 7a.
+Needs step 7 (the training check) first.
 
 **Instructions:** 2026-10-06: "what we did was creating new modules for our TEXGen-Emission. I want
 it to be more like the direct editing on the original modules. in this way we can also easily track
 what has been modified." (Replaces the earlier plan for this step: delete the orphaned modules.)
-
-**Result:**
-
-### 8. Training-check setup (no code change)
-
-- [ ] A small local training root (N shapes: parquet, split JSON, thumbnails, alpha) and a local-paths
-  override config; the live configs point at `/localscratch/...` and `${SLURM_TMPDIR}`, which do not
-  exist on the workstation. Or reuse
-  `../.superpowers/sdd/2026-09-16-texgen-restructure/cpu_training_smoke/smoke.py`.
-- [ ] Run the check twice on unchanged code to measure its noise before comparing anything.
-- [ ] If D2 = both: pull the release checkpoint and its `configs/parsed.yaml` (rsync + sha256).
-
-**Instructions:**
 
 **Result:**
 
@@ -389,14 +391,14 @@ Keep the `inference_samples(...)` signature and `sample_seed`.
 
 **Result:**
 
-### 12. Render-only data in our own code
+### 11. Render-only data in our own code
 
 Nothing on the pre-baked UV path renders, but our loader builds render-only data for each batch.
 Upstream's render pieces stay (D9), even the ones our runs build and never use.
 
 - [ ] The unused `camera_functions` import at `spuv/data/lightgen_uv.py:28`; `get_camera_info`
   (`:439`, called at `:405`, returns dummy matrices) and the `mesh` dict (`:380-387`) build batch keys
-  that `lightgen_system.py:115-116` reads and the backbone ignores; remove them together. After step 7
+  that `lightgen_system.py:115-116` reads and the backbone ignores; remove them together. After step 8
   they sit in `mesh_uv.py` and `texgen_test.py` (line numbers above are from before the folds).
 
 Depends on step 9. Loader and system code: full gate plus the training check.
@@ -405,7 +407,7 @@ Depends on step 9. Loader and system code: full gate plus the training check.
 
 **Result:**
 
-### 16. The memory tracker
+### 12. The memory tracker
 
 - [ ] Memory logging: `lightgen_system.py:62-64` (`init_tracker(enabled=True, log_interval=1)`),
   `:284-303`; `spuv/utils/memory_tracker.py`.
@@ -416,7 +418,7 @@ Depends on step 9. Loader and system code: full gate plus the training check.
 
 **Result:**
 
-### 18. `launch.py`
+### 13. `launch.py`
 
 332 of its 571 lines are ours (upstream's has 251). Our parts: the `torch.load` patch and env vars
 (`:9-28`), safe globals (`:89-104`), auto-resume and the wandb run-id restore (`:145-199`), the
@@ -428,7 +430,7 @@ checkpoint dirpath (`:217-225`), the wandb config and stale-cache cleanup (`:263
 
 **Result:**
 
-### 19. Environment files
+### 14. Environment files
 
 - [ ] `requirements.txt`: upstream's list plus three pins we added (`775268b`), no torch line.
   `requirements_125.txt`: torch cu126 next to cu118 xformers and spconv.
@@ -448,7 +450,7 @@ checkpoint dirpath (`:217-225`), the wandb config and stale-cache cleanup (`:263
 
 **Result:**
 
-### 20. Docs
+### 15. Docs
 
 One doc of record, keeping upstream's attribution and citation (`README.md:103`).
 
@@ -470,10 +472,10 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
 
 **Result:**
 
-### 20b. Release layer: generic entry points for LightgenBench users
+### 16. Release layer: generic entry points for LightgenBench users
 
 No user or cluster paths anywhere in it. Needs step 10 (the inference script takes its paths as
-arguments) and lands in the README with step 20.
+arguments) and lands in the README with step 15.
 
 - [ ] `scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_root>`: the generic half of
   `stage_hf.sh` (untar the Hugging Face release into `<data_root>/<uuid>/somage.npz` and
@@ -489,7 +491,7 @@ arguments) and lands in the README with step 20.
 
 **Result:**
 
-### 21. Cut-over (optional, per D8)
+### 17. Cut-over (optional, per D8)
 
 Move the consumers to the refactored `main`: the `texgen-v2` worktree, the `BRANCH=` lines in
 `scripts/internal/fir/train_lightgenbench_alpha_fir.sh:61,157` (the paper launcher's copy lives only on the
@@ -512,7 +514,7 @@ on jupiter and delete the Solar nodes' `.tree_ok` so they unpack it again.
   files differ): EMA weights on the test pass, the wandb directory, a non-zero exit on interrupt, the
   resume order (and one checkpoint read instead of two), validation metrics synced across GPUs, the
   training preview panel, the removed noise schedule; the loss guard (`309d3ab`, `bfb2135`;
-  it rejects a nonzero loss weight that no code reads), which fits after step 7c.
+  it rejects a nonzero loss weight that no code reads), which fits after step 8c.
 - [ ] **Tests from `restructure-2026-09-16`** (12 files, including a toy CPU fit/resume test).
 
 ## Due at the merge into `main` (parent repo)
