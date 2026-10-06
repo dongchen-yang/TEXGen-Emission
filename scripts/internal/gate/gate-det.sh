@@ -4,6 +4,8 @@ set -euo pipefail
 # overrides them (all optional): GATE_LOCK (a lock file, or "none" inside a Slurm job),
 # GATE_ACTIVATE (a script to source that activates the texgen env), GATE_REPO (the parent lightgen
 # checkout holding evaluation/newdata_eval/run_texgen_infer.py), GATE_L (the eval-local dir).
+# 3, 4 or 6 arguments: a data root without its parquet would pair it with the paper parquet.
+case $# in 3|4|6) ;; *) echo "usage: gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas_file> [<data_root> <parquet>]]"; exit 2 ;; esac
 # One GPU job at a time on the workstation 4090, shared with other sessions' gates (flock waits up to 3 h).
 LOCK=${GATE_LOCK:-/local-scratch/localhome/dya78/.locks/gpu0-rtx4090.lock}
 if [ "$LOCK" != none ]; then

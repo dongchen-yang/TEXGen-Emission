@@ -60,9 +60,10 @@ with a baseline from the same GPU type; the baselines and their noise per GPU ty
 - `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--noise_a <run1> --noise_b <run2>]`
   — byte identity, pixel differences and the evaluator's IoU, MAE and PSNR per shape; verdict
   IDENTICAL or WITHIN_NOISE (exit 0) against the noise of two baseline runs.
-- `train-check.sh <texgen_root> <out_dir> fresh|resume` — a short deterministic `launch.py --train`
-  on the small release root (`make_check_root.py`), reseeded right before `trainer.fit`, every step
-  recorded; `compare_traincheck.py --a <record> --b <record>` compares two runs.
+- `train-check.sh <texgen_root> <out_dir> fresh|resume [<resume_ckpt>]` — a short deterministic
+  `launch.py --train` on the small release root (`make_check_root.py`), reseeded right before
+  `trainer.fit`, every step recorded; `resume` starts from `<resume_ckpt>`, by default the release
+  checkpoint. `compare_traincheck.py --a <record> --b <record>` compares two runs.
 - `star2/checks.sbatch` — all three on one Solar node, the paper gate split across its GPUs.
 
 ## Architecture

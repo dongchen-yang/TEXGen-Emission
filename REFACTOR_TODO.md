@@ -191,8 +191,11 @@ All runs on tag `pre-refactor`, in parallel across machines.
   code under test still loads its pickled classes, `_scheduler_states`, optimizer and EMA state.
   Recorded: per step the batch ids, lr, loss, gradient norm and weight sum; per pass the metrics and
   the EMA sum; for the saved file its keys, scheduler state, pickled classes and state sum. Batch 2
-  runs out of memory on a 4090. Not the CPU `smoke.py`: its toy backbone skips the real model and it
-  bypasses `launch.py` (steps 8b, 13).
+  runs out of memory on a 4090. It runs without gradient accumulation (the release recipe used 2),
+  so the accumulation path is not covered. A NaN can never pass: `train-check.sh` stops on a
+  non-finite loss, and both comparisons count NaN on one side as a failure and refuse empty input.
+  Not the CPU `smoke.py`: its toy backbone skips the real model and it bypasses `launch.py` (steps
+  8b, 13).
 - Release checkpoint: main checkout `outputs/texgen_alpha_lightgenbench_v1/{ckpts,configs}`, sha256
   `6c42a311…92aa` on both ends.
 - Noise of two runs: zero everywhere (every file byte-identical, every recorded number equal).
@@ -225,7 +228,8 @@ All runs on tag `pre-refactor`, in parallel across machines.
   sp4090 (gates and resume only): the inputs sit at the same paths under `C`; set
   `GATE_LOCK=/local-scratch/localhome/dya78/lightgen_4090.lock GATE_ACTIVATE=C/tooling/activate_sp4090.sh
   GATE_REPO=C/tooling/repo`. L40S: the header of `star2/checks.sbatch` (the tree goes to
-  `star2:refactor_checks/trees/`). Times: on a 4090 the paper gate 23 min, the release gate 2.5 min,
+  `star2:refactor_checks/trees/`; submit without `-w` when a node shows 4 free L40S, then check
+  `sacct` for preemptions). Times: on a 4090 the paper gate 23 min, the release gate 2.5 min,
   fresh 2 min, resume 1.5 min; on the L40S node the paper gate 16.5 min (4 GPUs), the release gate
   7 min, fresh and resume together 5 min.
 - Found: (1) the shared Solar `texgen` env runs on sm_89 only (torchsparse fails on an A40;

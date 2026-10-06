@@ -12,6 +12,11 @@ baseline's mask.png texels with the evaluator's own metric functions
 cap), so a metric change reflects the prediction alone. These are UV-space numbers: the published
 evaluator samples the same PNG at mesh surface points, which this script does not do.
 
+A shape whose mask has no occupied texel has no MAE (the evaluator's point_mae gives NaN; IoU is 1
+and PSNR is the 40 dB cap there). Such a shape is reported as a count, left out of the MAE means,
+and its |dMAE| counts as 0 when MAE is undefined on both sides and as infinite (a failure) when on
+one side only. Every other NaN or infinity also counts as a failure, never as a pass.
+
 Verdict (exit 0 for the first two):
   IDENTICAL     every file byte-identical, nothing missing
   WITHIN_NOISE  nothing missing, and for every file and every statistic (per-shape mean and max
@@ -19,9 +24,11 @@ Verdict (exit 0 for the first two):
                 the candidate's mean and max over shapes are <= the noise pair's, on the same shapes
   DIFFERENT     no noise pair given and something differs, or something is missing
   OUTSIDE_NOISE a statistic exceeds the noise pair's
+  EMPTY         the shapes file lists no shape
 """
 import argparse
 import csv
+import math
 import os
 import sys
 
@@ -35,6 +42,20 @@ from evaluation.pointsampled.metrics import emission_mask, point_iou, point_mae,
 FILES = ("pred_emission.png", "gt_emission.png", "mask.png", "input_albedo.png")
 EPS = 1.0 / 255.0  # evaluation/pointsampled/pipeline.py EPS_DEFAULT
 METRICS = ("iou", "mae", "psnr")
+
+
+def absdiff(x, y):
+    """|x - y| that never hides a NaN: both NaN -> 0, one NaN -> inf, equal infinities -> 0."""
+    x, y = float(x), float(y)
+    if math.isnan(x) or math.isnan(y):
+        return 0.0 if math.isnan(x) and math.isnan(y) else math.inf
+    return 0.0 if x == y else abs(x - y)
+
+
+def finite_mean(values):
+    """Mean over the defined (non-NaN) values; NaN when none is defined."""
+    v = [x for x in values if not math.isnan(x)]
+    return float(np.mean(v)) if v else float("nan")
 
 
 def load(path):
@@ -75,7 +96,7 @@ def compare_pair(root_a, root_b, shas):
             sa, sb = score(imgs["pred_emission"][0], gt, occ), score(imgs["pred_emission"][1], gt, occ)
             for m in METRICS:
                 row[f"{m}_a"], row[f"{m}_b"] = sa[m], sb[m]
-                row[f"d{m}"] = abs(sb[m] - sa[m])
+                row[f"d{m}"] = absdiff(sb[m], sa[m])
         rows.append(row)
     return rows
 
@@ -95,10 +116,10 @@ def summarize(rows):
         s[f"d{m}"] = (float(np.mean(v)), float(np.max(v))) if v else (0.0, 0.0)
         a = [r[f"{m}_a"] for r in rows if f"{m}_a" in r]
         b = [r[f"{m}_b"] for r in rows if f"{m}_b" in r]
-        delta = abs(float(np.mean(b)) - float(np.mean(a))) if a else 0.0
+        s[f"mean_{m}_a"], s[f"mean_{m}_b"] = finite_mean(a), finite_mean(b)
+        delta = absdiff(s[f"mean_{m}_b"], s[f"mean_{m}_a"]) if a else 0.0
         s[f"mean_{m}_change"] = (delta, delta)
-        s[f"mean_{m}_a"], s[f"mean_{m}_b"] = (float(np.mean(a)) if a else float("nan"),
-                                              float(np.mean(b)) if b else float("nan"))
+        counts[f"undefined_{m}"] = (sum(math.isnan(x) for x in a), sum(math.isnan(x) for x in b))
     return s, counts
 
 
@@ -110,9 +131,11 @@ def report(tag, s, counts):
               f"missing={c['missing']}  |d| per shape (1/255 steps): mean {s[k + '_mean'][0]:.4g} "
               f"(worst shape {s[k + '_mean'][1]:.4g}), max {s[k + '_max'][1]:.4g}")
     for m in METRICS:
+        ua, ub = counts[f"undefined_{m}"]
         print(f"[{tag}] {m.upper():4s} mean a={s['mean_' + m + '_a']:.6f} b={s['mean_' + m + '_b']:.6f} "
               f"change {s['mean_' + m + '_change'][0]:.3g};  per shape |d{m}| mean {s['d' + m][0]:.3g} "
-              f"max {s['d' + m][1]:.3g}")
+              f"max {s['d' + m][1]:.3g}"
+              + (f";  undefined on {ua} / {ub} shapes (no occupied texel)" if ua or ub else ""))
 
 
 def main(argv=None):
@@ -125,6 +148,9 @@ def main(argv=None):
     ap.add_argument("--csv", help="write the candidate's per-shape rows here")
     a = ap.parse_args(argv)
     shas = [l.strip() for l in open(a.shas_file) if l.strip()]
+    if not shas:
+        print(f"[numeric] n=0 verdict=EMPTY ({a.shas_file} lists no shape)")
+        return 1
     rows = compare_pair(a.a, a.b, shas)
     s, counts = summarize(rows)
     report("candidate", s, counts)
@@ -134,8 +160,8 @@ def main(argv=None):
             w = csv.DictWriter(f, fieldnames=["sha"] + keys)
             w.writeheader()
             w.writerows(rows)
-    missing = sum(c["missing"] for c in counts.values())
-    identical = all(c["identical"] == len(shas) for c in counts.values())
+    missing = sum(counts[fn[:-4]]["missing"] for fn in FILES)
+    identical = all(counts[fn[:-4]]["identical"] == len(shas) for fn in FILES)
     if identical:
         verdict = "IDENTICAL"
     elif missing or not (a.noise_a and a.noise_b):
@@ -143,10 +169,13 @@ def main(argv=None):
     else:
         ns, ncounts = summarize(compare_pair(a.noise_a, a.noise_b, shas))
         report("noise", ns, ncounts)
-        if sum(c["missing"] for c in ncounts.values()):
+        if sum(ncounts[fn[:-4]]["missing"] for fn in FILES):
             sys.exit("the noise pair is missing files for these shapes")
-        over = [k for k in s if not k.startswith("mean_") or k.endswith("_change")
-                if s[k][0] > ns[k][0] or s[k][1] > ns[k][1]]
+        keys = [k for k in s if not k.startswith("mean_") or k.endswith("_change")]
+        if any(not math.isfinite(v) for k in keys for v in ns[k]):
+            sys.exit("the noise pair has a NaN or infinity in its statistics; it is not a noise baseline")
+        # `not (<=)`, so that a NaN in the candidate counts as over the noise
+        over = [k for k in keys if not (s[k][0] <= ns[k][0] and s[k][1] <= ns[k][1])]
         verdict = "WITHIN_NOISE" if not over else "OUTSIDE_NOISE (" + ", ".join(sorted(over)) + ")"
     print(f"[numeric] n={len(shas)} verdict={verdict}")
     return 0 if verdict in ("IDENTICAL", "WITHIN_NOISE") else 1

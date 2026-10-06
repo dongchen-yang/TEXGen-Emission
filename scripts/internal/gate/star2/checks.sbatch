@@ -17,7 +17,12 @@
 #       -e 's|__PAPER_RUNS__|1 2|' -e 's|__RELEASE_RUNS__|1 2|' -e 's|__TRAIN_RUNS__|fresh:1 fresh:2 resume:1 resume:2|' \
 #       -e 's|__GRES__|l40s:4|' -e 's|__NCPU__|16|' -e 's|__MEM__|300G|' -e 's|__TIME__|02:00:00|' \
 #       scripts/internal/gate/star2/checks.sbatch > /tmp/checks.sbatch
-#   ssh star2 'sbatch -w cs-venus-16' < /tmp/checks.sbatch
+#   python3 ~/.claude/skills/compute-access/scripts/hostprobe.py      # a node with 4 free L40S, now
+#   ssh star2 'sbatch' < /tmp/checks.sbatch
+#   ssh star2 'sacct -N <node> -a -S now-15minutes -X -n -s PR'      # any line = a preemption: tell Dongchen
+# No `-w`: Slurm picks a node with free L40S (`sbatch --test-only` routes it to 3dlg-hcvc-lab-debug).
+# A GPU job pinned to one of our nodes with `-w` evicts another lab's running job there instead of
+# waiting. Staging is per node, so a run on a node it has not used yet first copies ~30 GB (~2 min).
 # __TREE__ is a name under ~/refactor_checks/trees/; __PAPER_RUNS__ / __RELEASE_RUNS__ are run numbers
 # (run r sends shape k of the list to GPU (k + r) mod NGPU, so two runs put each shape on different
 # GPUs); __TRAIN_RUNS__ are mode:run pairs; "" skips a kind.
@@ -39,12 +44,14 @@ OUT=$LS/out/$LABEL; HOUT=$H/out/$LABEL
 PAPER_CKPT=$LS/ckpts/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt
 REL_CKPT=$LS/ckpts/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt
 say() { echo "[checks $(date +%H:%M:%S)] $*"; }
+SYNC="rsync -rlt"   # transfers use rsync, never cp (parent AGENTS.md); -rlt: no owner or permission bits
 die() { echo "CHECKS_FAIL label=$LABEL node=$(hostname -s) job=${SLURM_JOB_ID:-} reason=$*"; exit 1; }
 say "node=$(hostname -s) job=${SLURM_JOB_ID:-} tree=$TREE label=$LABEL gpus=$(nvidia-smi --query-gpu=name --format=csv,noheader | sort | uniq -c | xargs)"
 # The shared env's torchsparse carries sm_89 kernels only: an A40 (sm_86) fails with "no kernel image".
 CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
 [ "$CC" = 8.9 ] || die "compute capability $CC; this env runs on sm_89 only (L40S, RTX 6000 Ada)"
 [ -d "$TREE" ] && [ -f "$GT/gate-det.sh" ] && [ -f "$TOOL/repo/evaluation/newdata_eval/run_texgen_infer.py" ] || die "tree or tooling missing under $H"
+command -v rsync > /dev/null || die "no rsync on $(hostname -s)"
 [ -e "$OUT" ] && die "$OUT exists; use a new label"
 mkdir -p "$LS/ckpts" "$OUT/logs" "$HOUT/logs" || die "mkdir"
 
@@ -60,14 +67,14 @@ EOF
 # ---- staging (once per node) ----
 exec 8>"$LS/.stage.lock"; flock 8
 if [ ! -f "$EL/.ok" ]; then
-  say "stage: paper gate data"; rm -rf "$EL"; cp -dR "$EVIN/solar_texgen_stage/eval_local" "$EL" || die "eval_local copy"; touch "$EL/.ok"
+  say "stage: paper gate data"; rm -rf "$EL"; $SYNC "$EVIN/solar_texgen_stage/eval_local/" "$EL/" || die "eval_local copy"; touch "$EL/.ok"
 fi
 stage_ckpt() {  # run file sha256
   local d=$LS/ckpts/$1
   [ -f "$d/ckpts/.ok_$2" ] && return 0
   mkdir -p "$d/ckpts" "$d/configs"
-  cp "$JUP/outputs/$1/configs/parsed.yaml" "$d/configs/" || return 1
-  say "stage: $1/$2"; cp "$JUP/outputs/$1/ckpts/$2" "$d/ckpts/$2.part" && mv "$d/ckpts/$2.part" "$d/ckpts/$2" || return 1
+  $SYNC "$JUP/outputs/$1/configs/parsed.yaml" "$d/configs/" || return 1
+  say "stage: $1/$2"; $SYNC --inplace "$JUP/outputs/$1/ckpts/$2" "$d/ckpts/$2.part" && mv "$d/ckpts/$2.part" "$d/ckpts/$2" || return 1
   [ "$(sha256sum "$d/ckpts/$2" | cut -d' ' -f1)" = "$3" ] || { echo "sha256 mismatch $2"; return 1; }
   touch "$d/ckpts/.ok_$2"
 }
@@ -120,13 +127,13 @@ for d in "$OUT"/paper_test204_run* "$OUT"/release_test20_run*; do
   [ -d "$d" ] || continue
   for s in "$d"/*/; do
     s=${s%/}; mkdir -p "$HOUT/$(basename "$d")/$(basename "$s")"
-    cp "$s"/{pred_emission,gt_emission,mask,input_albedo}.png "$HOUT/$(basename "$d")/$(basename "$s")/" 2>/dev/null
+    $SYNC "$s"/{pred_emission,gt_emission,mask,input_albedo}.png "$HOUT/$(basename "$d")/$(basename "$s")/" 2>/dev/null
   done
 done
 for mr in $TRAIN_RUNS; do
-  n=train_${mr%%:*}_run${mr##*:}; cp "$OUT/$n/record.jsonl" "$HOUT/$n.jsonl" 2>/dev/null || RC=1
+  n=train_${mr%%:*}_run${mr##*:}; $SYNC "$OUT/$n/record.jsonl" "$HOUT/$n.jsonl" 2>/dev/null || RC=1
 done
-cp "$OUT"/logs/*.log "$HOUT/logs/"
+$SYNC "$OUT"/logs/*.log "$HOUT/logs/"
 for d in "$HOUT"/paper_test204_run* "$HOUT"/release_test20_run*; do
   [ -d "$d" ] && say "$(basename "$d"): $(find "$d" -name pred_emission.png | wc -l) pred_emission.png"
 done

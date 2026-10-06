@@ -33,7 +33,9 @@ export TEXGEN_GATE_DETERMINISTIC=1 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH="$
 # Lightning writes a checkpoint through a temp file in $TMPDIR, and the workstation's /tmp has < 12 GB
 # free. The dataloader workers put sockets there, so the path must stay short (AF_UNIX limit).
 mkdir -p "${TRAINCHECK_TMPBASE:=/local-scratch/localhome/dya78/tmp}"
-export TMPDIR=$(mktemp -d "$TRAINCHECK_TMPBASE/tc.XXXXXX"); trap 'rm -rf "$TMPDIR"' EXIT
+TMPDIR=$(mktemp -d "$TRAINCHECK_TMPBASE/tc.XXXXXX") && [ -d "$TMPDIR" ] \
+  || { echo "ABORT: mktemp -d under $TRAINCHECK_TMPBASE failed"; exit 2; }
+export TMPDIR; trap 'rm -rf "$TMPDIR"' EXIT
 cd "$ROOT"
 case "$MODE" in
   fresh)  python launch.py --config "$HERE/traincheck/traincheck.yaml" --gpu 0 --train ;;
@@ -42,6 +44,10 @@ case "$MODE" in
   *) echo "mode must be fresh or resume"; exit 2 ;;
 esac
 grep -q '"kind": "test"' "$TEXGEN_TRAINCHECK_OUT" || { echo "ABORT: no test record in $TEXGEN_TRAINCHECK_OUT"; exit 3; }
+# A NaN loss does not stop Lightning; a record that holds one is not a usable run.
+env -u TEXGEN_TRAINCHECK_OUT python -c 'import json, math, sys
+bad = [r["gs"] for r in map(json.loads, open(sys.argv[1])) if r["kind"] == "train" and not math.isfinite(r["loss"])]
+sys.exit(f"ABORT: non-finite training loss at global steps {bad}" if bad else 0)' "$TEXGEN_TRAINCHECK_OUT"
 SAVED=$(find "$OUT/ckpts" -name '*.ckpt' | sort)
 [ "$(echo "$SAVED" | grep -c .)" = 1 ] || { echo "ABORT: expected one checkpoint in $OUT/ckpts, got: $SAVED"; exit 3; }
 env -u TEXGEN_TRAINCHECK_OUT python "$HERE/traincheck/summarize_ckpt.py" "$SAVED" >> "$TEXGEN_TRAINCHECK_OUT"

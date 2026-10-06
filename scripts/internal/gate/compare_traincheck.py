@@ -11,15 +11,19 @@ largest absolute difference over all events:
   val     param_sum, ema_sum and every val/* metric, per validation pass (sanity pass included)
   test    every metric of the test pass
   ckpt    state_sum (all floating state_dict entries)
+A difference is NaN-safe: NaN on both sides counts as equal, NaN on one side or two unequal
+infinities as an infinite difference, so a run that turns NaN can never pass.
 
 Verdict (exit 0 for the first two):
   IDENTICAL     structure matches and every number is equal
   WITHIN_NOISE  structure matches, and every quantity's largest difference is <= the noise pair's
   DIFFERENT     structure differs, or numbers differ and no noise pair was given
   OUTSIDE_NOISE a quantity's largest difference exceeds the noise pair's
+  INCOMPLETE    a record has no training step or no checkpoint summary (an empty or cut-off run)
 """
 import argparse
 import json
+import math
 import sys
 
 TRAIN_KEYS = ("loss", "lr", "grad_norm", "param_sum")
@@ -41,12 +45,26 @@ def structure(r):
     }
 
 
+def absdiff(x, y):
+    """|x - y| that never hides a NaN: both NaN -> 0, one NaN -> inf, equal infinities -> 0."""
+    x, y = float(x), float(y)
+    if math.isnan(x) or math.isnan(y):
+        return 0.0 if math.isnan(x) and math.isnan(y) else math.inf
+    return 0.0 if x == y else abs(x - y)
+
+
+def incomplete(r, path):
+    if not r["train"] or not r["ckpt"]:
+        return f"{path}: {len(r['train'])} training steps, {len(r['ckpt'])} checkpoint summaries"
+    return None
+
+
 def diffs(a, b):
     """Quantity name -> largest |a - b| over all events (structure already checked equal)."""
     d = {}
 
     def put(name, x, y):
-        d[name] = max(d.get(name, 0.0), abs(float(x) - float(y)))
+        d[name] = max(d.get(name, 0.0), absdiff(x, y))
 
     for x, y in zip(a["train"], b["train"]):
         for k in TRAIN_KEYS:
@@ -82,6 +100,11 @@ def main(argv=None):
     ap.add_argument("--noise_b")
     a = ap.parse_args(argv)
     ra, rb = load(a.a), load(a.b)
+    empty = incomplete(ra, a.a) or incomplete(rb, a.b)
+    if empty:
+        print(f"[traincheck] {empty}")
+        print("[traincheck] verdict=INCOMPLETE")
+        return 1
     bad = first_mismatch(structure(ra), structure(rb))
     print(f"[traincheck] steps={len(ra['train'])} val_passes={len(ra['val'])} test={len(ra['test'])} "
           f"ckpts={len(ra['ckpt'])}  structure: {'same' if bad is None else 'DIFFERENT at ' + bad}")
@@ -92,12 +115,17 @@ def main(argv=None):
     nd = None
     if a.noise_a and a.noise_b:
         na, nb = load(a.noise_a), load(a.noise_b)
+        nempty = incomplete(na, a.noise_a) or incomplete(nb, a.noise_b)
+        if nempty:
+            sys.exit(f"the noise pair is incomplete: {nempty}")
         nbad = first_mismatch(structure(na), structure(nb))
         if nbad is not None:
             sys.exit(f"the noise pair's structures differ: {nbad}")
         if first_mismatch(structure(ra), structure(na)) is not None:
             sys.exit("the noise pair is not the same check as --a (different steps or passes)")
         nd = diffs(na, nb)
+        if any(math.isinf(v) for v in nd.values()):
+            sys.exit("the noise pair has a NaN or infinity on one side only; it is not a noise baseline")
     for k in sorted(d):
         print(f"[traincheck] {k:32s} max|d| {d[k]:.6g}" + (f"   noise {nd[k]:.6g}" if nd is not None else ""))
     if all(v == 0.0 for v in d.values()):
