@@ -8,6 +8,9 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 
 ## Progress
 
+Steps 11, 13, 14, 15 and 17 were removed on 2026-10-06: emptied by D9 and D6, or absorbed by step
+7c. The other steps keep their numbers; the removed text is in this file's history.
+
 - [x] 1. Housekeeping
 - [x] 2. Dead root scripts and the Blender call
 - [x] 3. The existing `deprecated/` tree and stale ignore rules
@@ -19,13 +22,8 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 - [ ] 8. Training-check setup (no code change)
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
-- [ ] 11. ~~Explicit imports~~ dropped (D9)
-- [ ] 12. Render-only data in our own code (narrowed by D9)
-- [ ] 13. ~~Modules orphaned by step 12~~ dropped (D9: unused upstream files stay untouched)
-- [x] 14. ~~Loss branches~~ dropped: every loss stays, switched by config
-- [ ] 15. Overridden upstream methods and disabled blocks (absorbed by 7c; the rest stays, D9)
-- [ ] 16. `saving.py` and the memory tracker
-- [ ] 17. Flatten the class chain (absorbed by 7c)
+- [ ] 12. Render-only data in our own code
+- [ ] 16. The memory tracker
 - [ ] 18. `launch.py`
 - [ ] 19. Environment files
 - [ ] 20. Docs
@@ -157,7 +155,7 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   `spuv/utils/rasterize.py`, upstream's render stack, its star imports): leave them untouched, so
   `git diff upstream/main` shows only real changes, or delete them? Step 4 already deleted
   upstream's demo files (`tools/`, `assets/`, two images). Recommended: leave untouched from step 7 on.
-  This decides steps 11, 12, 13, the rest of 15 and part of 16.
+  This narrowed steps 12 and 16.
   **Answer (2026-10-06):** untouched. Upstream code changes only where our runs need a change; step
   4's deletions stay as they are. Extended the same day ("for other steps, we can just leave the
   original TEXGen's code there if they are not used"): this also covers unused code *inside* upstream
@@ -315,8 +313,17 @@ fold, full gate after each. Order: data, backbone, system.
   plus the training check (the gate does not exercise the training split).
 - [ ] 7b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
 - [ ] 7c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
-  overrides a base method). `spuv.systems.texgen_base.LossConfig` stays where it is (pickled in the
-  paper checkpoint). Full gate, training check, a resume from a real checkpoint.
+  overrides a method only it defines). Our methods replace upstream's versions in place (for example
+  `prepare_diffusion_data`, `forward`, `prepare_condition_info`, `texgen_test.py:35-182`); every loss
+  branch moves unchanged (D6). Stays as it is: upstream's render branch of `on_check_train`
+  (`:219-242`), our disabled 3D-render block in `test_step` (from `:444`), and the `texgen_base.py`
+  methods that `texgen_test.py` overrides (upstream's own split). Afterwards the chain is upstream's
+  own, `BaseSystem` → `TEXGenDiffusion` (`texgen_base.py`) → `TEXGenDiffusion` (`texgen_test.py`), with
+  `LightGenSystem` only an alias; merging upstream's two levels is not planned. Inference (the gate)
+  runs through `test_pipeline` (`texgen_test.py:496-544`) and `ema_scope` (`texgen_base.py:232`);
+  `test_step` (`:269-494`) runs in validation and `trainer.test`. Keep stable #2 (including
+  `spuv.systems.texgen_base.LossConfig`, which stays where it is: the paper checkpoint pickles it),
+  #3 and #4. The riskiest fold: full gate, training check, and a resume from a real checkpoint.
 - [ ] 7d. Our other added files: `spuv/models/simple_uv_unet.py` (ours, imported by nothing):
   delete. `spuv/utils/memory_tracker.py` (ours, used): step 16.
 
@@ -382,30 +389,15 @@ Keep the `inference_samples(...)` signature and `sample_seed`.
 
 **Result:**
 
-### 11. Explicit imports (no behavior change)
+### 12. Render-only data in our own code
 
-**Dropped (D9).** Its purpose was to show which upstream modules could go once nothing imported
-them (step 13), and upstream code now stays.
+Nothing on the pre-baked UV path renders, but our loader builds render-only data for each batch.
+Upstream's render pieces stay (D9), even the ones our runs build and never use.
 
-~~Replace the star imports (`nvdiffrast_utils`, `mesh_utils`, `uv_operators`, `emb_utils`,
-`sparse_utils`) with the names actually used, so later steps can see what depends on what.~~
-
-**Instructions:**
-
-**Result:**
-
-### 12. Render, mesh and perceptual code off the live path
-
-Nothing on the pre-baked UV path renders, but it builds and passes around some render-only data.
-**Narrowed by D9 to our own code:** upstream's pieces stay even though they are built and never used.
-
-- [ ] Ours: the unused `camera_functions` import at `spuv/data/lightgen_uv.py:28`; `get_camera_info`
+- [ ] The unused `camera_functions` import at `spuv/data/lightgen_uv.py:28`; `get_camera_info`
   (`:439`, called at `:405`, returns dummy matrices) and the `mesh` dict (`:380-387`) build batch keys
   that `lightgen_system.py:115-116` reads and the backbone ignores; remove them together. After step 7
   they sit in `mesh_uv.py` and `texgen_test.py` (line numbers above are from before the folds).
-- Stays (upstream, D9): the two rasterizer contexts (`spuv/systems/texgen_base.py:156`,
-  `spuv/models/sparse_networks/texgen_network.py:102`, passed as `ctx=` and ignored); LPIPS or VGG
-  (`texgen_base.py:161-163`); the `feature_baking.py` import (`texgen_network.py:24`).
 
 Depends on step 9. Loader and system code: full gate plus the training check.
 
@@ -413,80 +405,12 @@ Depends on step 9. Loader and system code: full gate plus the training check.
 
 **Result:**
 
-### 13. Modules orphaned by step 12
+### 16. The memory tracker
 
-Whatever step 12 leaves unimported (for example `camera_strategy.py`, `nvdiffrast_utils.py`,
-`renderers/rasterize.py`, `lpips.py`, `perceptual_loss.py`, `mesh.py`); the list comes from step 12.
-All of them are upstream files. **Dropped (D9):** they stay untouched.
-
-**Instructions:**
-
-**Result:**
-
-### 14. Loss branches (training code)
-
-**Dropped: every loss branch stays.** Each is switched on or off by the config, so a branch that no
-current config turns on is an option, not dead code. They move into `texgen_test.py` with step 7c,
-unchanged.
-
-- Stays: the bright/dark split, dark region, emission-mask BCE, the `out_channels == 1` mask-only
-  mode (`spuv/systems/lightgen_system.py:229-237,371-381`, inside `get_diffusion_loss` `:429-647`),
-  mask classification (+ balanced), GT-mask conditioning (D6), `emissive_threshold`, the
-  `use_precomputed_clip` loading branch (`spuv/data/lightgen_uv.py:277-281`,
-  `lightgen_system.py:97-101`; kept 2026-09-29), and the config keys that switch them.
-
-**Instructions:** 2026-10-06: "we can still keep the losses there. since they can just be adjusted
-by the config".
-
-**Result:** nothing to do.
-
-### 15. Overridden upstream methods and disabled blocks
-
-**Absorbed by step 7c; nothing else to do (D9).** Once `LightGenSystem`'s methods are edited into
-`texgen_test.py` in place, upstream's versions there are replaced rather than overridden. Upstream
-code that stays unused (the render branch of `on_check_train`, `texgen_base.py`'s overridden methods)
-stays as it is. The disabled 3D-render block in `test_step` is our own edit of upstream's render
-call (upstream's `test_step` renders at its line 311) and stays as an edit.
-
-- [ ] `spuv/systems/texgen_test.py:35-182` (`prepare_diffusion_data`, `forward`,
-  `prepare_condition_info`), all overridden by `LightGenSystem`: replaced in step 7c. The render
-  branch of `on_check_train` (`:219-242`) and the disabled 3D-render block from `:444`: stay (D9).
-- [ ] `spuv/systems/texgen_base.py`: `test_step` (`:373-586`, with its own render block), `test_pipeline`
-  (`:587`), `validation_step` (`:365`), `on_check_train` (`:302`), all overridden further down.
-  (Upstream's own split; stays untouched, D9.)
-
-**Instructions:**
-
-**Result:**
-
-### 16. `saving.py` and the memory tracker
-
-- [ ] ~~`spuv/utils/saving.py` (762 lines, 31 methods): only `save_image_grid` and `save_json` are used;
-  the mesh, OBJ, GLB, cubemap and image-sequence savers and the `Mesh` import are upstream leftovers.~~
-  Dropped (D9): upstream's unused savers stay untouched.
 - [ ] Memory logging: `lightgen_system.py:62-64` (`init_tracker(enabled=True, log_interval=1)`),
   `:284-303`; `spuv/utils/memory_tracker.py`.
 - [ ] Keep the `gc.collect()` / `torch.cuda.empty_cache()` every 5 steps (`texgen_base.py:221-229`)
   unless measured on an H100 (the release run already had to drop to batch 16).
-
-**Instructions:**
-
-**Result:**
-
-### 17. Flatten the class chain
-
-Absorbed by step 7c: after the fold the chain is upstream's own, `BaseSystem` → `TEXGenDiffusion`
-(`texgen_base.py`) → `TEXGenDiffusion` (`texgen_test.py`), with `LightGenSystem` only an alias. Merging
-upstream's two `TEXGenDiffusion` levels is not planned (it would rewrite upstream's structure). The
-notes below apply to 7c.
-
-`BaseSystem` (`spuv/systems/base.py`) → `TEXGenDiffusion` (`spuv/systems/texgen_base.py`) →
-`TEXGenDiffusion` again (`spuv/systems/texgen_test.py`, same class name) → `LightGenSystem`
-(`spuv/systems/lightgen_system.py`). Inference (the gate) runs through `test_pipeline`
-(`texgen_test.py:496-544`) and `ema_scope` (`texgen_base.py:232`); `test_step`
-(`texgen_test.py:269-494`) runs in validation and `trainer.test`. Invariants: Keep stable #2
-(including `spuv.systems.texgen_base.LossConfig`), #3 and #4. Riskiest step: gate, training check and
-a resume from a real checkpoint.
 
 **Instructions:**
 
