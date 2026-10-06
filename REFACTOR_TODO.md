@@ -8,12 +8,6 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 
 ## Progress
 
-On 2026-10-06 the old steps 11, 13, 14, 15 and 17 were removed (emptied by D9 and D6, or absorbed by
-the system fold) and the open steps were renumbered in the order they run. Old to new, for commit
-messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11, 16 → 12, 18 → 13, 19 → 14,
-20 → 16, 20b → 15, 21 → 18; 9 and 10 kept their numbers; step 17 (the merge and the rename) was
-added the same day. The removed text is in this file's history.
-
 - [x] 1. Housekeeping
 - [x] 2. Dead root scripts and the Blender call
 - [x] 3. The existing `deprecated/` tree and stale ignore rules
