@@ -218,6 +218,8 @@ All runs on tag `pre-refactor`, in parallel across machines.
 - Baselines. 4090 (workstation and sp4090): paper `$L/pred_gate_det1_seed00`, release
   `C/gate/rtx4090-ws/release_test20_run1`, training `C/train/rtx4090-ws/{fresh,resume}_run1/record.jsonl`.
   L40S: `C/gate/l40s-venus16/{paper_test204,release_test20}_run1`, `C/train/l40s-venus16/train_{fresh,resume}_run1.jsonl`.
+  Superseded by step 7b: the release check root `C/release_root` (from jupiter's `dataset_release`)
+  and the release and training baselines on it; they stay on disk. The paper baselines stand.
 - Run (absolute paths; `T` the tree under test, e.g. a `git archive` of the commit; python from the
   `texgen` env):
 
@@ -250,13 +252,13 @@ All runs on tag `pre-refactor`, in parallel across machines.
 Runs after 8a. The paper gate keeps the paper-era test bake (`$L/out_eval_gt`): its outputs tie to the
 published paper numbers, and the release has different test shapes, bake and GT rule.
 
-- [ ] The release gate and the training check read files downloaded from Hugging Face
+- [x] The release gate and the training check read files downloaded from Hugging Face
   (`3dlg-hcvc/LightgenBench`), not jupiter's `dataset_release`: fetch only the tars that hold the 38
   check shapes, verify them against the release's `checksums.sha256`, and rebuild the check root the
   release run's way (untar, then `scripts/lightgenbench/build_index.py`).
 - [ ] New `pre-refactor` baselines and noise runs on that root, per GPU type used; then re-check the
   8a head against them.
-- [ ] A fan-out driver: one command that probes every candidate GPU (How we work: never wait), splits
+- [x] A fan-out driver: one command that probes every candidate GPU (How we work: never wait), splits
   the paper gate across every free 4090 (workstation, sp4090, xg4090 after a one-subset match check
   against the 4090 baseline) and every free Solar L40S, compares each shard with its own GPU type's
   baseline, and runs the release gate and both training checks at the same time on other free GPUs.
@@ -267,7 +269,57 @@ published paper numbers, and the release has different test shapes, bake and GT 
 across the avaialble devices"; "dont have them waiting for the GPU all the time... just find the
 avaialbe ones and running them."
 
-**Result:**
+**Result:** Not passed yet (2026-10-06). The Hugging Face root and the driver are done, but runs of
+unchanged code are not always reproducible (last item below), so the middle item stays open for a
+decision. Tooling in `scripts/internal/gate/`, data and outputs in `C = $L/refactor_checks`.
+
+- Data: `3dlg-hcvc/LightgenBench` at Hub revision `d152558a`, pinned in `make_check_root.py`. Fetched
+  `splits.json`, `checksums.sha256`, `metadata.parquet` and six tars, 1.6 GB in 17 s: the atlas and
+  thumbnail tars of train shard 36, val shard 0 and test shard 0 (`metadata.parquet` gives each
+  shape's shard). All eight files match the release's `checksums.sha256`; `splits.json` also matches
+  the sha256 the release runs pin. The downloaded `checksums.sha256` and `splits.json` equal
+  jupiter's `dataset_release_hf` copies. The root `C/hf_root` (77 MB, `MANIFEST.sha256` of its 81
+  files) is built the release run's way: tar extraction with the launcher's renames, then
+  `build_index.py` and its check; every npz has the loader's keys and a uint8 alpha.
+- Shapes (`check_root_splits.json`, rewritten): 16 train shapes, stride 27 over the 426 sorted uuids of
+  train shard 36 (the smallest tar); the 2 val and 20 test shapes of step 7, unchanged. Their npz arrays
+  and thumbnails decode exactly as in the old root, and the release gate of `pre-refactor` on the new
+  root is byte-identical to the old root's, on the 4090 and on the L40S.
+- Baselines of `pre-refactor` on the new root, listed per GPU type in `baselines.json`; each noise
+  pair IDENTICAL. RTX 4090: release `C/gate/rtx4090-ws/hf_release_test20_run1` (pair: sp4090
+  `C/gate/rtx4090-sp/hf_release_test20_run2`), fresh `C/train/rtx4090-ws/hf_fresh_run{1,2}`, resume
+  `C/train/rtx4090-ws/hf_resume_run1` (pair: `C/train/rtx4090-sp/hf_resume_run2`). L40S (cs-venus-15,
+  job 292223): release `C/gate/l40s-venus15/hf_release_test20_run{1,2}`, fresh
+  `C/train/l40s-venus15/hf_fresh_run{1,2}`. The paper baselines are step 7's. Times: on a 4090 the
+  release gate 167 s, fresh 116 s, resume 100 s; host RAM used 13 GB (gate), 18 GB (fresh), 22 GB
+  (resume).
+- Driver: `python3 scripts/internal/gate/fanout.py --rev <commit>` (`--plan` probes and plans only).
+  It probes the workstation, sp4090, xg4090 and cs-venus-15/16/17 once. It plans the release gate
+  and the training checks onto GPUs whose type has those baselines, splits the paper gate so that
+  all GPUs finish together, and submits one Solar job per node with free L40S (no `-w`;
+  `--deadline` = limit + 2 min, so a job that cannot start at once is cancelled; checked after
+  30 s, then `sacct` for preemptions). The lab queues hold the host's 4090 locks, each taken once.
+  It compares every output with its own type's baseline, checks `gpu.txt`, and prints PASS, FAIL,
+  INCOMPLETE (with the command that finishes it) or NOTHING_FREE. `--stage`/`--qualify` admit a lab
+  4090 (`C/qualified/<host>.txt`); sp4090 passed (subset20 IDENTICAL, 3.5 min). `gate-det.sh` and
+  `train-check.sh` take `GATE_LOCK_WAIT=0` and write `gpu.txt`, and `train-check.sh` now deletes
+  its checkpoint on aborts too. `star2/checks.sbatch` takes a task file and runs one queue per GPU.
+- Head run (`--rev 14b9db1`, code = 8a): 6 GPUs (workstation, sp4090, 4 L40S on cs-venus-15), the
+  plan ~10.8 min, wall 13.7 min, against 23 min for the paper gate alone on one 4090. The 4090
+  paper shards (46 + 76 shapes), fresh and resume: IDENTICAL. In that run the driver read star2's
+  stderr login banner as the Solar job's status (fixed: stdout only, and a status counts once it has
+  its `CHECKS_` line), so it summarized before the job ended; the job's shards were compared by hand.
+- Not reproducible: unchanged code sometimes gives a second, nearly equal output, one per process.
+  Inside a differing process every shape differs, by at most 1/255 on ~0.1% of texels (|dIoU| ≤ 1.5e-3).
+  (1) L40S resume, six runs of `pre-refactor`: two outcomes (first-step loss 0.0089087 in two runs,
+  0.0089099 in four; one GPU index gave both), so `baselines.json` keeps it out
+  (`_resume_not_reproducible`). (2) The head's four L40S paper shards on cs-venus-15: one is IDENTICAL
+  to the cs-venus-16 baseline, three differ. (3) The head's 4090 release gate inside the driver run
+  differed on all 20 shapes; seven reruns of the same tree (workstation, with and without the queue's
+  environment, and sp4090) are IDENTICAL. Step 7's "noise zero everywhere" came from pairs that
+  happened to agree. Open: how a check should pass when two runs of unchanged code can differ.
+- Not used: xg4090 (its hostname does not resolve); Alliance (no open login socket).
+- Not touched: parent docs (none names the gate tooling).
 
 ### 8. Fold our modules into upstream's originals
 

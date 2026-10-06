@@ -51,20 +51,35 @@ python launch.py --config <config.yaml> --gpu 0 --train system.optimizer.args.lr
 - `--benchmark` — record running times
 
 ### Checking a code change
-Tooling in `scripts/internal/gate/`; data and run outputs stay outside the repo. Compare a run only
-with a baseline from the same GPU type; the baselines and their noise per GPU type are listed in
-`REFACTOR_TODO.md` step 7.
+Tooling in `scripts/internal/gate/`; data and run outputs stay outside the repo, in
+`/local-scratch/localhome/dya78/lightgen_eval_local/refactor_checks/`. Compare a run only with a
+baseline from the same GPU type: `baselines.json` lists them per type (RTX 4090, L40S);
+`REFACTOR_TODO.md` steps 7 and 7b say how they were made. Two runs of unchanged code do not always
+agree: now and then a process gives a second output, at most 1/255 apart (step 7b, open).
+- `python3 scripts/internal/gate/fanout.py --rev <commit> [--checks paper,release,fresh,resume]
+  [--paper_shas <file>] [--plan]` — the one command. It probes the workstation 4090, sp4090, xg4090
+  and our Solar L40S nodes once, sends work only to GPUs that are free right now (a busy GPU, a held
+  lock or a host short of RAM is skipped, never waited on), splits the paper gate over all of them,
+  runs the release gate and both training checks beside it, compares each result with its own GPU
+  type's baseline and prints one verdict: exit 0 PASS, 1 FAIL, 2 INCOMPLETE (with the command that
+  finishes it), 3 NOTHING_FREE. `--stage <host>` then `--qualify <host>` admit a new lab 4090
+  (subset20 on tag `pre-refactor` must be IDENTICAL to the 4090 baseline).
 - `gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas> [<data_root> <parquet>]]` — deterministic
-  inference, seed 0, on the paper gate data by default; the release gate passes the release check
-  root and its parquet as the last two arguments.
+  inference, seed 0, on the paper gate data (the paper-era test bake) by default; the release gate
+  passes the release check root and its parquet as the last two arguments. `GATE_LOCK_WAIT=0` tries
+  the 4090 lock once instead of waiting up to 3 h. Writes `<out_dir>/gpu.txt` (host and card).
 - `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--noise_a <run1> --noise_b <run2>]`
   — byte identity, pixel differences and the evaluator's IoU, MAE and PSNR per shape; verdict
   IDENTICAL or WITHIN_NOISE (exit 0) against the noise of two baseline runs.
 - `train-check.sh <texgen_root> <out_dir> fresh|resume [<resume_ckpt>]` — a short deterministic
-  `launch.py --train` on the small release root (`make_check_root.py`), reseeded right before
-  `trainer.fit`, every step recorded; `resume` starts from `<resume_ckpt>`, by default the release
-  checkpoint. `compare_traincheck.py --a <record> --b <record>` compares two runs.
-- `star2/checks.sbatch` — all three on one Solar node, the paper gate split across its GPUs.
+  `launch.py --train` on the release check root, reseeded right before `trainer.fit`, every step
+  recorded; `resume` starts from `<resume_ckpt>`, by default the release checkpoint.
+  `compare_traincheck.py --a <record> --b <record>` compares two runs.
+- `make_check_root.py --hf <dir> --fetch`, then `--hf <dir> --out <root>` — the release check root
+  (16 train, 2 val, 20 test shapes, `check_root_splits.json`) from the Hugging Face release
+  `3dlg-hcvc/LightgenBench` at a pinned revision: six tars, checked against the release's
+  `checksums.sha256`, untarred and indexed the release run's way. Default root: `refactor_checks/hf_root`.
+- `star2/checks.sbatch` — the checks on one Solar node; `fanout.py` writes, stages and submits it.
 
 ## Architecture
 

@@ -30,7 +30,8 @@ conda run -n texgen bash -c 'python inference_specific_samples.py'
 ## Check a code change
 
 The inference gate, its numeric comparison and the training check are in `scripts/internal/gate/`;
-commands in `CLAUDE.md` § Checking a code change.
+`python3 scripts/internal/gate/fanout.py --rev <commit>` runs all of them on every free GPU and
+prints one verdict. Details in `CLAUDE.md` § Checking a code change.
 
 ## Do not change casually
 
