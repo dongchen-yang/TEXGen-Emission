@@ -58,7 +58,7 @@ Live runs:
 
 | run | config | checkpoint |
 |---|---|---|
-| paper | `configs/lightgen_pointuv_256_batch32_emissive_74k_v2_alpha_venus19_agentic.yaml` | local `outputs/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt` |
+| paper | the checkpoint's own `configs/parsed.yaml` (the config file `…_74k_v2_alpha_venus19_agentic.yaml` was deleted in step 6; tag `pre-refactor` and branch `texgen-74k-v2-venus05` keep it) | local `outputs/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt` |
 | release retrain | `configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml`, run by `scripts/internal/fir/train_lightgenbench_alpha_fir.sh` (overrides batch 16 × accumulate 2) | jupiter `outputs/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt` |
 
 Byte gate (paper checkpoint, 204 test shapes, seed 0, PyTorch deterministic mode, 4090 lock;
@@ -258,15 +258,24 @@ note in each file; workstation-side usage lines and descriptions use the new pat
 
 ### 6. Configs
 
-Keep the two live configs. The other 17 YAML files and `configs/data_splits_overfit_single.json` go,
-except per D6 (one config per kept ablation path). `…_alpha_fir_agentic.yaml` goes too (its
-launcher went in step 5). Decide: keep the paper config? The paper checkpoint carries its own
-`configs/parsed.yaml`, so the gate does not need it. Docs naming them: `../docs/baselines/texgen.md:12-30,48`,
-`../.claude/rules/texgen.md`, `CLAUDE.md`, `LIGHTGEN_WORKFLOW.md`.
+Keep only the release config, `configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml`
+(the rule from step 5: keep what produced the release results).
 
-**Instructions:**
+- [x] Delete the other 19 YAML files and `configs/data_splits_overfit_single.json`: the 1k variants
+  (5), the overfit set (4), the 74k pinned (2), the 74k_v2 vanilla (3), the alpha chain (4), and the
+  paper config `…_74k_v2_alpha_venus19_agentic.yaml` (the paper checkpoint carries its own
+  `configs/parsed.yaml`, so the gate does not need it).
+- [x] Fix `CLAUDE.md` and `LIGHTGEN_WORKFLOW.md`, which named them.
+- [ ] Parent docs that name them (`../docs/baselines/texgen.md:12-30,48`, `../.claude/rules/texgen.md`)
+  describe `TEXGen/` on `main`, which keeps every config until `refactor` merges: fixed at the merge
+  (see "Due at the merge").
 
-**Result:**
+**Instructions:** 2026-10-06: "delete the unneeded configs". D6: the ablation configs went with the
+rest; keeping or dropping their code paths is still open (step 14).
+
+**Result:** TEXGen `refactor`, commit below: 20 files deleted, all kept by tag `pre-refactor` (the
+paper config also on branch `texgen-74k-v2-venus05`). No code reads any of them (the only code path
+under `configs/` is the release launcher's `CONFIG`, which names the kept file). Nothing pushed.
 
 ### 7. Orphaned modules
 
@@ -519,6 +528,15 @@ on jupiter and delete the Solar nodes' `.tree_ok` so they unpack it again.
   training preview panel, the removed noise schedule; the loss guard (`309d3ab`, `bfb2135`), which
   fits only after step 14.
 - [ ] **Tests from `restructure-2026-09-16`** (12 files, including a toy CPU fit/resume test).
+
+## Due at the merge into `main` (parent repo)
+
+The parent's docs describe `TEXGen/` on `main`; they change when `refactor` merges and the pointer is
+bumped, not before.
+
+- [ ] Step 6: `../docs/baselines/texgen.md:12-30,48` (the config table and the `_v2` config row) and
+  `../.claude/rules/texgen.md` (the 74k and overfit commands, the overfit configs line, the
+  λ = 0.01 config in Losses) name deleted configs.
 
 ## Out of scope
 

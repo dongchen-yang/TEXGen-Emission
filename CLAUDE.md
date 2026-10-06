@@ -6,10 +6,13 @@
 
 ## Baseline Variants
 
-There are exactly **3 baseline variants**. Variant→config table: canonical copy in the parent repo at
-[`docs/baselines/texgen.md`](../docs/baselines/texgen.md) (do not restate here). Active workflow map:
-[`LIGHTGEN_WORKFLOW.md`](LIGHTGEN_WORKFLOW.md). Superseded overfit10 / sweep configs and stale docs were
-deleted 2026-09-29; git history keeps them (tag `pre-trim-2026-09-16`).
+The only config left is the release retrain's, `configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml`
+(launcher `scripts/internal/fir/train_lightgenbench_alpha_fir.sh`). The configs of the three baseline
+variants (vanilla / GT-mask conditioning / mask-classification), the overfit configs and every other 74k
+config were deleted on 2026-10-06; tag `pre-refactor` keeps them, and the paper checkpoint carries its
+own `configs/parsed.yaml`. Workflow map: [`LIGHTGEN_WORKFLOW.md`](LIGHTGEN_WORKFLOW.md). Superseded
+overfit10 / sweep configs and stale docs were deleted 2026-09-29; git history keeps them (tag
+`pre-trim-2026-09-16`).
 
 Upstream README's `configs/texgen_test.yaml` inference command is broken in this fork (config deleted in
 39c0452). `requirements_125.txt` is the fork-authoritative requirements file for the `texgen` env.
@@ -20,20 +23,11 @@ All commands run from `TEXGen/` directory.
 
 ### Training
 ```bash
-# Overfitting tests (single-sample sanity checks, small architecture)
-python launch.py --config configs/lightgen_pointuv_overfit.yaml --gpu 0 --train
-python launch.py --config configs/lightgen_pointuv_overfit_gt_mask_cond.yaml --gpu 0 --train
-python launch.py --config configs/lightgen_pointuv_overfit_mask_cls.yaml --gpu 0 --train
+# The release retrain on fir (4× H100 DDP, micro-batch 16 × accumulate 2, global 128); submits the job,
+# usage and probe run in its header
+bash scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 
-# Full dataset training (256x256, batch 32, emission-filtered)
-python launch.py --config configs/lightgen_pointuv_256_batch32_emission_filtered.yaml --gpu 0 --train
-python launch.py --config configs/lightgen_pointuv_256_batch32_emission_filtered_gt_mask_cond.yaml --gpu 0 --train
-python launch.py --config configs/lightgen_pointuv_256_batch32_emission_filtered_mask_cls.yaml --gpu 0 --train
-
-# Scaled 74k training on fir (4× H100 DDP, per-GPU bs=32, global bs=128)
-python launch.py --config configs/lightgen_pointuv_256_batch32_emissive_74k.yaml --gpu 0,1,2,3 --train --wandb
-
-# With W&B logging
+# Any config, with W&B logging
 python launch.py --config <config.yaml> --gpu 0 --train --wandb
 
 ```
@@ -376,13 +370,14 @@ Sweep of `lambda_pred_mask_cls` ∈ {0.0 (vanilla), 0.01, 0.1, 1.0, 10.0}. All o
 ### Mask Cls Lambda Sweep Configs
 | Lambda | Config |
 |--------|--------|
-| 0.01 | `configs/lightgen_pointuv_overfit_mask_cls_lambda001.yaml` (kept active) |
+| 0.01 | `configs/lightgen_pointuv_overfit_mask_cls_lambda001.yaml` (deleted 2026-10-06) |
 | 0.1 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda01.yaml` (deleted 2026-09-29) |
-| 1.0 | `configs/lightgen_pointuv_overfit_mask_cls.yaml` (baseline overfit) |
+| 1.0 | `configs/lightgen_pointuv_overfit_mask_cls.yaml` (baseline overfit; deleted 2026-10-06) |
 | 10.0 | `deprecated/configs/lightgen_pointuv_overfit_mask_cls_lambda10.yaml` (deleted 2026-09-29) |
 
 Sweep script: `deprecated/scripts/root/run_mask_cls_lambda_sweep.sh` (deleted 2026-09-29; the tag
-`pre-trim-2026-09-16` keeps it and both configs above)
+`pre-trim-2026-09-16` keeps it and all four configs above; tag `pre-refactor` also keeps the two
+`configs/` ones)
 
 ## Hardware Requirements
 
