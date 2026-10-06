@@ -36,10 +36,19 @@ messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11,
 
 - One step = one commit with one purpose. Removals and moves never share a commit with a behavior
   change.
-- Dongchen gives the go and the instructions for each step (write them under **Instructions**); a go
-  for one step is not a go for the next.
-- After each step that touches code: the byte gate (below) must read `same=204 different=0
-  missing=0`. Steps that touch training code also need the training check (D5).
+- The steps run automatically, in order, now that the plan is agreed (Dongchen, 2026-10-06): when a
+  step's checks pass, commit it, record the result, report it in a short line, and start the next
+  step without waiting for a go. Dongchen can add instructions under any step's **Instructions** at
+  any time; a step reads them before it starts.
+- Stop and ask only when: (1) a step needs an open decision (each D says which step it is due
+  before); (2) a check fails (the gate is not `same=N different=0 missing=0`, or the training check
+  moves outside its measured noise), and the cause is not an obvious slip in the step itself; (3) a
+  step meets something the plan does not cover (a fix the step would need, a behavior change, a file
+  outside the step's list); (4) the next action leaves the worktree: a push, a commit in the parent
+  repo, the merge into `main`, a write to jupiter or a cluster job.
+- After each step that touches code: the byte gate (below) must read `same=N different=0
+  missing=0` (N = 20 on the subset, 204 on the full set). Steps that touch training code also need
+  the training check (D5).
 - A doc that names a removed file is fixed in the same step as the removal.
 - In `TEXGen/`: never `git add -A` (the `texgen-v2` worktree is untracked there) and never
   `git clean -x`/`-X` (the ignored `outputs/` holds the gate's only local checkpoint, 12 GB).
