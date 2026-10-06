@@ -27,6 +27,11 @@ conda run -n texgen bash -c 'python launch.py --config <config.yaml> --gpu 0 --t
 conda run -n texgen bash -c 'python inference_specific_samples.py'
 ```
 
+## Check a code change
+
+The inference gate, its numeric comparison and the training check are in `scripts/internal/gate/`;
+commands in `CLAUDE.md` § Checking a code change.
+
 ## Do not change casually
 
 - `spuv/data/lightgen_uv.py` — atlas encoding contract (somage / uv_voxel_pipeline parity).

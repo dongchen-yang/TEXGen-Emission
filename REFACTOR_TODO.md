@@ -12,7 +12,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 5. Launchers
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
 - [x] 6. Configs
-- [ ] 7. Check setup: the training check and the noise baselines (no code change)
+- [x] 7. Check setup: the training check and the noise baselines (no code change)
 - [ ] 8. Fold our modules into upstream's originals
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
@@ -154,19 +154,82 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 
 All runs on tag `pre-refactor`, in parallel across machines.
 
-- [ ] A small local training root (N shapes: parquet, split JSON, thumbnails, alpha) and a local-paths
+- [x] A small local training root (N shapes: parquet, split JSON, thumbnails, alpha) and a local-paths
   config override (the release config points at `${SLURM_TMPDIR}`). Or reuse
   `../.superpowers/sdd/2026-09-16-texgen-restructure/cpu_training_smoke/smoke.py`.
-- [ ] Training-check noise: two runs on unchanged code, per GPU type used.
-- [ ] A numeric gate comparison under `scripts/internal/gate/` (per shape: mean and max absolute pixel
+- [x] Training-check noise: two runs on unchanged code, per GPU type used.
+- [x] A numeric gate comparison under `scripts/internal/gate/` (per shape: mean and max absolute pixel
   difference; the evaluator's IoU, MAE and PSNR).
-- [ ] Gate noise: two runs on unchanged code, per GPU type used (the 4090 has one baseline already).
-- [ ] The release checkpoint: pull it with its `configs/parsed.yaml` (rsync + sha256), pick a
+- [x] Gate noise: two runs on unchanged code, per GPU type used (the 4090 has one baseline already).
+- [x] The release checkpoint: pull it with its `configs/parsed.yaml` (rsync + sha256), pick a
   release-shape subset, make its baseline and noise runs.
 
 **Instructions:**
 
-**Result:**
+**Result:** Tooling only, in `scripts/internal/gate/`; data and run outputs in
+`$L/refactor_checks/` (`C` below), outside the repo. Every run used tag `pre-refactor`.
+
+- Built: `compare_numeric.py` (per shape and file: byte identity, mean and max pixel difference; the
+  evaluator's IoU, MAE and PSNR from `evaluation/pointsampled/metrics.py`, on the UV texels against
+  the baseline's GT, not point-sampled; verdict IDENTICAL, WITHIN_NOISE, DIFFERENT or OUTSIDE_NOISE).
+  `gate-det.sh` takes an optional data root and parquet (5th, 6th) and host overrides (`GATE_LOCK`,
+  `GATE_ACTIVATE`, `GATE_REPO`, `GATE_L`); its defaults are unchanged. `make_check_root.py` builds
+  the release check root `C/release_root`: 16 train, 2 val, 20 test release shapes, fixed in
+  `check_root_splits.json`, alpha inside the npz. The training check: `train-check.sh fresh|resume`,
+  `traincheck/traincheck.yaml` (extends the release config: the check root, batch 1, 2 epochs, one
+  save), `traincheck/sitecustomize.py` (deterministic mode, `pl.seed_everything(42)` right before
+  `trainer.fit` and a recording callback, all through PYTHONPATH), `traincheck/summarize_ckpt.py`,
+  `compare_traincheck.py`. `star2/checks.sbatch` runs all of it on one Solar L40S node.
+- The training check runs the real `launch.py --train`. fresh: from scratch, 32 steps, validation
+  after each epoch, `trainer.test`, one save. resume: from the release checkpoint, 17 steps
+  (Lightning first ends the checkpoint's own epoch with one batch), validation, test, one save. It
+  resumes the release checkpoint, not one the run writes: only a published checkpoint shows that the
+  code under test still loads its pickled classes, `_scheduler_states`, optimizer and EMA state.
+  Recorded: per step the batch ids, lr, loss, gradient norm and weight sum; per pass the metrics and
+  the EMA sum; for the saved file its keys, scheduler state, pickled classes and state sum. Batch 2
+  runs out of memory on a 4090. Not the CPU `smoke.py`: its toy backbone skips the real model and it
+  bypasses `launch.py` (steps 8b, 13).
+- Release checkpoint: main checkout `outputs/texgen_alpha_lightgenbench_v1/{ckpts,configs}`, sha256
+  `6c42a311…92aa` on both ends.
+- Noise of two runs: zero everywhere (every file byte-identical, every recorded number equal).
+
+  | check | 4090, workstation | 4090, sp4090 | L40S, cs-venus-16 (4 GPUs) |
+  |---|---|---|---|
+  | paper gate, 204 | identical (`det1`, `det2`) | identical to the workstation | identical, each shape on another GPU |
+  | release gate, 20 | identical | identical to the workstation | identical |
+  | training check fresh | identical | out of memory (a desktop session holds 0.7 GB) | identical |
+  | training check resume | identical | identical to the workstation | identical |
+
+  Across GPU types outputs differ, as expected: L40S against 4090, 180 of 204 paper predictions
+  differ by at most 4/255 (mean IoU change 2e-5), and training differs from its first step.
+- Baselines. 4090 (workstation and sp4090): paper `$L/pred_gate_det1_seed00`, release
+  `C/gate/rtx4090-ws/release_test20_run1`, training `C/train/rtx4090-ws/{fresh,resume}_run1/record.jsonl`.
+  L40S: `C/gate/l40s-venus16/{paper_test204,release_test20}_run1`, `C/train/l40s-venus16/train_{fresh,resume}_run1.jsonl`.
+- Run (absolute paths; `T` the tree under test, e.g. a `git archive` of the commit; python from the
+  `texgen` env):
+
+  ```bash
+  G=scripts/internal/gate
+  bash $G/gate-det.sh T <out> <paper ckpt> [$G/subset20.txt]                       # paper gate
+  bash $G/gate-det.sh T <out> <release ckpt> C/release_root/release_test20.txt \
+      C/release_root C/release_root/df_lightgenbench.parquet                        # release gate
+  python $G/compare_numeric.py --a <baseline> --b <out> --shas_file <shas>         # all four files
+  bash $G/train-check.sh T <out> fresh       # then resume
+  python $G/compare_traincheck.py --a <baseline record> --b <out>/record.jsonl
+  ```
+
+  sp4090 (gates and resume only): the inputs sit at the same paths under `C`; set
+  `GATE_LOCK=/local-scratch/localhome/dya78/lightgen_4090.lock GATE_ACTIVATE=C/tooling/activate_sp4090.sh
+  GATE_REPO=C/tooling/repo`. L40S: the header of `star2/checks.sbatch` (the tree goes to
+  `star2:refactor_checks/trees/`). Times: on a 4090 the paper gate 23 min, the release gate 2.5 min,
+  fresh 2 min, resume 1.5 min; on the L40S node the paper gate 16.5 min (4 GPUs), the release gate
+  7 min, fresh and resume together 5 min.
+- Found: (1) the shared Solar `texgen` env runs on sm_89 only (torchsparse fails on an A40;
+  `checks.sbatch` refuses other cards); (2) Lightning saves a checkpoint through a temp file in
+  `$TMPDIR` and the workstation's `/` has 7 GB free, so `train-check.sh` points `TMPDIR` at a short
+  directory on `/local-scratch` (a long one breaks the dataloader's sockets); (3) the paper
+  checkpoint's `configs/parsed.yaml` on jupiter differs from the workstation copy in `resume:` only,
+  which inference does not read.
 
 ### 8. Fold our modules into upstream's originals
 

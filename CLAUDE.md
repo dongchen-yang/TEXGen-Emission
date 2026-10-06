@@ -50,6 +50,21 @@ python launch.py --config <config.yaml> --gpu 0 --train system.optimizer.args.lr
 - `--typecheck` — dynamic type checking via jaxtyping
 - `--benchmark` — record running times
 
+### Checking a code change
+Tooling in `scripts/internal/gate/`; data and run outputs stay outside the repo. Compare a run only
+with a baseline from the same GPU type; the baselines and their noise per GPU type are listed in
+`REFACTOR_TODO.md` step 7.
+- `gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas> [<data_root> <parquet>]]` — deterministic
+  inference, seed 0, on the paper gate data by default; the release gate passes the release check
+  root and its parquet as the last two arguments.
+- `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--noise_a <run1> --noise_b <run2>]`
+  — byte identity, pixel differences and the evaluator's IoU, MAE and PSNR per shape; verdict
+  IDENTICAL or WITHIN_NOISE (exit 0) against the noise of two baseline runs.
+- `train-check.sh <texgen_root> <out_dir> fresh|resume` — a short deterministic `launch.py --train`
+  on the small release root (`make_check_root.py`), reseeded right before `trainer.fit`, every step
+  recorded; `compare_traincheck.py --a <record> --b <record>` compares two runs.
+- `star2/checks.sbatch` — all three on one Solar node, the paper gate split across its GPUs.
+
 ## Architecture
 
 ### Inheritance Chain
