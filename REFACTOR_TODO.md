@@ -11,7 +11,7 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 On 2026-10-06 the old steps 11, 13, 14, 15 and 17 were removed (emptied by D9 and D6, or absorbed by
 the system fold) and the open steps were renumbered in the order they run. Old to new, for commit
 messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11, 16 → 12, 18 → 13, 19 → 14,
-20 → 15, 20b → 16, 21 → 17; 9 and 10 kept their numbers. The removed text is in this file's history.
+20 → 16, 20b → 15, 21 → 17; 9 and 10 kept their numbers. The removed text is in this file's history.
 
 - [x] 1. Housekeeping
 - [x] 2. Dead root scripts and the Blender call
@@ -28,8 +28,8 @@ messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11,
 - [ ] 12. The memory tracker
 - [ ] 13. `launch.py`
 - [ ] 14. Environment files
-- [ ] 15. Docs
-- [ ] 16. Release layer: generic entry points for LightgenBench users
+- [ ] 15. Release layer: generic entry points for LightgenBench users
+- [ ] 16. Docs
 - [ ] 17. Cut-over (optional, per D8)
 
 ## How we work
@@ -87,7 +87,7 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
    `../evaluation/newdata_eval/run_texgen_infer.py:40-46` (the gate's driver) and from
    `scripts/internal/fir/infer_lightgenbench_fir.sh:71-74` (the release inference, branch
    `texgen-74k-v2-venus05`). Legacy caller: `../evaluation/pointsampled/texgen_infer.py` imports
-   `spuv` directly (decide keep or retire in step 15).
+   `spuv` directly (decide keep or retire in step 16).
 2. Class paths loaded from each run's `configs/parsed.yaml` (read as `ckpt/../../configs/parsed.yaml`,
    `inference_specific_samples.py:65-68`): `spuv.systems.lightgen_system.LightGenSystem`,
    `spuv.data.lightgen_uv.LightGenDataModule`,
@@ -162,6 +162,11 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   4's deletions stay as they are. Extended the same day ("for other steps, we can just leave the
   original TEXGen's code there if they are not used"): this also covers unused code *inside* upstream
   files, even files we edit. Cleanups apply only to our own code.
+- [ ] **D10 Our internal scripts in the published code** (before publishing). `scripts/internal/`
+  holds our Slurm accounts, `/scratch/dya78` and workstation paths, and step 15's no-paths rule
+  covers only the release layer. Publish it as it is, publish a snapshot without it, or move it into
+  the parent repo? Recommended: a published snapshot without `scripts/internal/`; our working copy
+  keeps it.
 
 ## Steps
 
@@ -225,7 +230,7 @@ hand; `.gitignore` drops `comparison_overfit/`, `render_outputs/`, `deprecated/c
   `.gitignore` rule `assets/checkpoints/*.ckpt` (moved here from step 3; `*.ckpt` still covers
   checkpoints).
 - [x] `static/blocks.jpg` and `static/overview.jpg` (unreferenced). `static/teaser.jpg` stays until the
-  README changes in step 15.
+  README changes in step 16.
 
 **Instructions:** 2026-09-29: go.
 
@@ -247,7 +252,7 @@ Keep only what produced the release results: `scripts/fir/train_lightgenbench_al
   `git show texgen-74k-v2-venus05:scripts/fir/train_74k_v2_alpha_agentic_fir.sh` instead of copying it in).
 
 **Instructions:** 2026-09-29/30: keep only the scripts used for the release results; the kept ones are
-cluster-specific, so split them into a release layer and an internal layer (steps 5b and 16).
+cluster-specific, so split them into a release layer and an internal layer (steps 5b and 15).
 
 **Result:** TEXGen `b0f7904`: 18 files deleted, all still on branch `texgen-74k-v2-venus05`; the release
 launcher's comments say where the deleted files live, and its usage line, which named the old
@@ -450,7 +455,25 @@ checkpoint dirpath (`:217-225`), the wandb config and stale-cache cleanup (`:263
 
 **Result:**
 
-### 15. Docs
+### 15. Release layer: generic entry points for LightgenBench users
+
+The TEXGen code will be published for LightgenBench users to train and run (Dongchen, 2026-10-06),
+so this layer is what they use. No user or cluster paths anywhere in it. Needs step 10 (the inference
+script takes its paths as arguments); its README commands are written in step 16 (Docs).
+
+- [ ] `scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_root>`: the generic half of
+  `stage_hf.sh` (untar the Hugging Face release into `<data_root>/<uuid>/somage.npz` and
+  `thumbnails/<uuid>.png`), then `build_index.py`.
+- [ ] One release config with the recipe values (batch 16 × accumulate 2, and the note that
+  `TEXGEN_ENABLE_FLASH=0` and the four conditioning pins are required).
+- [ ] The internal fir launchers stay as they are (turning them into thin wrappers would need a fir
+  test run).
+
+**Instructions:** 2026-10-06: "it will be published for lightgenbench users to train and run".
+
+**Result:**
+
+### 16. Docs
 
 One doc of record, keeping upstream's attribution and citation (`README.md:103`).
 
@@ -467,25 +490,9 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
   `../evaluation/newdata_eval/infer_texgen_v2_venus05.sbatch:6`,
   `../evaluation/newdata_eval/sweeps/stage_texgen_host.sh:46`.
 - [ ] Keep or retire `../evaluation/pointsampled/texgen_infer.py` (Keep stable #1).
-
-**Instructions:**
-
-**Result:**
-
-### 16. Release layer: generic entry points for LightgenBench users
-
-No user or cluster paths anywhere in it. Needs step 10 (the inference script takes its paths as
-arguments) and lands in the README with step 15.
-
-- [ ] `scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_root>`: the generic half of
-  `stage_hf.sh` (untar the Hugging Face release into `<data_root>/<uuid>/somage.npz` and
-  `thumbnails/<uuid>.png`), then `build_index.py`.
-- [ ] One release config with the recipe values (batch 16 × accumulate 2, and the note that
-  `TEXGEN_ENABLE_FLASH=0` and the four conditioning pins are required).
-- [ ] README: single-node training (`python launch.py --config ... --gpu 0,1,2,3 --train
-  data.data_root=...`) and inference (`inference_specific_samples.py`) on the release test split.
-- [ ] The internal fir launchers stay as they are (turning them into thin wrappers would need a fir
-  test run).
+- [ ] The release layer's commands (step 15) in the README: single-node training (`python launch.py
+  --config ... --gpu 0,1,2,3 --train data.data_root=...`) and inference (`inference_specific_samples.py`)
+  on the release test split.
 
 **Instructions:**
 
