@@ -46,6 +46,11 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 - Parent pointer bumps use a path-limited commit, `git commit -- TEXGen`: the parent working tree
   carries other sessions' uncommitted work.
 - Nothing is pushed without Dongchen's go.
+- From step 6 on, all edits happen in the worktree `.claude/worktrees/refactor` (branch `refactor`);
+  `git diff pre-refactor` there shows every edit since the tag. The main checkout stays on `main`, so
+  the parent's scripts that default to `TEXGen/` keep running the unchanged code. The gate's
+  `<texgen_root>` is the worktree; the paper checkpoint lives only in the main checkout's ignored
+  `outputs/`, so pass its absolute path.
 - Status: tick a step under **Progress** when it is done (commit hashes in its **Result**), each item
   inside a step as it lands, and a decision once it is answered.
 
@@ -130,11 +135,13 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   mask-classification code paths? Only the 1k and overfit configs use them; the paper mentions the
   GT-mask variant only in commented-out text (`../paper_draft/sec/6_experiment.tex:20`). If kept,
   keep one config per path.
-- [ ] **D7 Where commits go** (before step 1). Directly on `main`, or on a branch merged when you are
+- [x] **D7 Where commits go** (before step 1). Directly on `main`, or on a branch merged when you are
   happy (one merge to undo)? Is this file committed? Pointer bump per step or only at the merge?
-  Recommended: a branch; commit this file; bump once at the merge. **Not answered yet; so far** steps
-  1–3 were committed directly on `main` (only the step-1 merge is pushed), this file is uncommitted,
-  and the parent pointer is not bumped.
+  Recommended: a branch; commit this file; bump once at the merge.
+  **Answer (2026-10-06):** from step 6 on, a branch: `refactor`, checked out in the worktree
+  `.claude/worktrees/refactor`, started at tag `pre-refactor` (`de78afc` = `main` with steps 1–5b and
+  this file committed). Steps 1–5b were committed directly on `main` before that (only the step-1
+  merge is pushed). Open: when the parent pointer is bumped (still `6096a63`).
 - [ ] **D8 Cut-over** (before step 21). After the refactor, do the launchers, the worktree and the staged
   `TEXGen.tar` move to `main`, or stay on the frozen branch?
 
