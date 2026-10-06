@@ -13,6 +13,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
 - [x] 6. Configs
 - [x] 7. Check setup: the training check and the noise baselines (no code change)
+- [ ] 7b. Release checks on Hugging Face data, and a fan-out driver
 - [ ] 8. Fold our modules into upstream's originals
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
@@ -43,6 +44,10 @@ the code behind the paper and release runs, generic entry points for LightgenBen
   compute-access skill): split the full gate by shape list, run a training check's before, after and
   noise runs at once, prepare the next step while checks run (commit it only after the step before
   passes). Skip a machine that needs a 2FA login.
+- Never wait for a GPU: right before dispatch, probe every candidate (free GPU memory and free host
+  RAM) and send work only to the ones free now; a busy GPU or a held lock is skipped, not waited on;
+  a Solar job is submitted only when free L40S show up and must start at once or fail. If nothing is
+  free, report it and stop.
 - Compare only within one GPU type and environment: outputs differ between GPU types. Each GPU type
   gets its own baseline and noise run from `pre-refactor` (step 7).
 - Our changes are edits to upstream's original modules; a file of ours that only keeps a published
@@ -240,6 +245,30 @@ All runs on tag `pre-refactor`, in parallel across machines.
   checkpoint's `configs/parsed.yaml` on jupiter differs from the workstation copy in `resume:` only,
   which inference does not read.
 
+### 7b. Release checks on Hugging Face data, and a fan-out driver
+
+Runs after 8a. The paper gate keeps the paper-era test bake (`$L/out_eval_gt`): its outputs tie to the
+published paper numbers, and the release has different test shapes, bake and GT rule.
+
+- [ ] The release gate and the training check read files downloaded from Hugging Face
+  (`3dlg-hcvc/LightgenBench`), not jupiter's `dataset_release`: fetch only the tars that hold the 38
+  check shapes, verify them against the release's `checksums.sha256`, and rebuild the check root the
+  release run's way (untar, then `scripts/lightgenbench/build_index.py`).
+- [ ] New `pre-refactor` baselines and noise runs on that root, per GPU type used; then re-check the
+  8a head against them.
+- [ ] A fan-out driver: one command that probes every candidate GPU (How we work: never wait), splits
+  the paper gate across every free 4090 (workstation, sp4090, xg4090 after a one-subset match check
+  against the 4090 baseline) and every free Solar L40S, compares each shard with its own GPU type's
+  baseline, and runs the release gate and both training checks at the same time on other free GPUs.
+  `gate-det.sh`'s lock is tried once instead of waited on when the driver calls it. Alliance GPUs only
+  with an already open login and their own baselines.
+
+**Instructions:** 2026-10-06: "we should use the huggingface data if we are not"; "run them all
+across the avaialble devices"; "dont have them waiting for the GPU all the time... just find the
+avaialbe ones and running them."
+
+**Result:**
+
 ### 8. Fold our modules into upstream's originals
 
 | ours | upstream original |
@@ -321,10 +350,12 @@ Keep the `inference_samples(...)` signature and `sample_seed`.
 
 ### 11. Render-only data in our own code
 
-- [ ] The unused `camera_functions` import (`spuv/data/lightgen_uv.py:28`), `get_camera_info` (`:439`,
-  called at `:405`, dummy matrices) and the `mesh` dict (`:380-387`): batch keys that
-  `lightgen_system.py:115-116` reads and the backbone ignores; remove them together. After step 8
-  they sit in `mesh_uv.py` and `texgen_test.py` (line numbers are from before the folds).
+- [ ] `get_camera_info` (`:439`, called at `:405`, dummy matrices) and the `mesh` dict (`:380-387`):
+  batch keys that `lightgen_system.py:115-116` reads and the backbone ignores; remove them together.
+  After step 8 they sit in `mesh_uv.py` and `texgen_test.py` (line numbers are from before the
+  folds). Only lines of ours with no upstream counterpart go; upstream's lines and upstream methods
+  whose bodies we edited stay (D9), and the `camera_functions` import is upstream's own line in
+  `mesh_uv.py`, so it stays. If nothing purely ours is left, the step is dropped.
 
 Depends on step 9. Full gate plus the training check.
 
