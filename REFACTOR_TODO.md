@@ -11,7 +11,8 @@ That attempt stays on branch `restructure-2026-09-16` for reference.
 On 2026-10-06 the old steps 11, 13, 14, 15 and 17 were removed (emptied by D9 and D6, or absorbed by
 the system fold) and the open steps were renumbered in the order they run. Old to new, for commit
 messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11, 16 → 12, 18 → 13, 19 → 14,
-20 → 16, 20b → 15, 21 → 17; 9 and 10 kept their numbers. The removed text is in this file's history.
+20 → 16, 20b → 15, 21 → 18; 9 and 10 kept their numbers; step 17 (the merge and the rename) was
+added the same day. The removed text is in this file's history.
 
 - [x] 1. Housekeeping
 - [x] 2. Dead root scripts and the Blender call
@@ -20,7 +21,7 @@ messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11,
 - [x] 5. Launchers (before the configs they use)
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
 - [x] 6. Configs
-- [ ] 7. Training-check setup (no code change)
+- [ ] 7. Check setup: the training check and the noise baselines (no code change)
 - [ ] 8. Fold our modules into upstream's originals (direct edits)
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
@@ -30,7 +31,8 @@ messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11,
 - [ ] 14. Environment files
 - [ ] 15. Release layer: generic entry points for LightgenBench users
 - [ ] 16. Docs
-- [ ] 17. Cut-over (optional, per D8)
+- [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
+- [ ] 18. Cut-over (optional, per D8)
 
 ## How we work
 
@@ -41,14 +43,27 @@ messages written before that: 7 → 8 (7a–7d → 8a–8d), 8 → 7, 12 → 11,
   step without waiting for a go. Dongchen can add instructions under any step's **Instructions** at
   any time; a step reads them before it starts.
 - Stop and ask only when: (1) a step needs an open decision (each D says which step it is due
-  before); (2) a check fails (the gate is not `same=N different=0 missing=0`, or the training check
-  moves outside its measured noise), and the cause is not an obvious slip in the step itself; (3) a
-  step meets something the plan does not cover (a fix the step would need, a behavior change, a file
-  outside the step's list); (4) the next action leaves the worktree: a push, a commit in the parent
-  repo, the merge into `main`, a write to jupiter or a cluster job.
-- After each step that touches code: the byte gate (below) must read `same=N different=0
-  missing=0` (N = 20 on the subset, 204 on the full set). Steps that touch training code also need
-  the training check (D5).
+  before); (2) a check fails (the gate or the training check moves outside its measured noise), and
+  the cause is not an obvious slip in the step itself; (3) a step meets something the plan does not
+  cover (a fix the step would need, a behavior change, a file outside the step's list); (4) the next
+  action leaves the worktree and our compute: a push, a commit in the parent repo, the merge into
+  `main`, a write to jupiter's shared tree. Jobs on our machines for the plan's checks need no go.
+- After each step that touches code: the gate (below) must pass, and steps that touch training code
+  also need the training check (D5). A check passes when its outputs are identical, or when every
+  difference stays within the noise measured by running the unchanged code (tag `pre-refactor`)
+  twice on the same GPU type (Dongchen, 2026-10-06: "for the gates, we should allow difference if it
+  is just noise"). A difference larger than that noise is a failure.
+- Speed (Dongchen, 2026-10-06: "maximize the speed ... run them in parallel. we have so many
+  machines"): run every check in parallel across the machines we have (the workstation, the lab
+  4090s, the Solar nodes, the Alliance clusters; procedures in the compute-access skill). Split the
+  full gate across GPUs by shape list (each shape's seed depends only on its sha); run a training
+  check's before, after and noise runs at the same time on separate GPUs; prepare the next step while
+  a step's checks run, and commit it only after the step before it passes. A machine that needs a
+  login (2FA) is skipped rather than waited for.
+- Same GPU type for every comparison: outputs differ between GPU types (the bake and the SegviGen
+  dumps showed it), so a result is compared only with a baseline and a noise run from the same GPU
+  type and environment. The existing gate baseline is the workstation 4090's; any other GPU type
+  first gets its own baseline and noise run from tag `pre-refactor` (step 7).
 - A doc that names a removed file is fixed in the same step as the removal.
 - In `TEXGen/`: never `git add -A` (the `texgen-v2` worktree is untracked there) and never
   `git clean -x`/`-X` (the ignored `outputs/` holds the gate's only local checkpoint, 12 GB).
@@ -74,7 +89,7 @@ Live runs:
 | paper | the checkpoint's own `configs/parsed.yaml` (the config file `…_74k_v2_alpha_venus19_agentic.yaml` was deleted in step 6; tag `pre-refactor` and branch `texgen-74k-v2-venus05` keep it) | local `outputs/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt` |
 | release retrain | `configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml`, run by `scripts/internal/fir/train_lightgenbench_alpha_fir.sh` (overrides batch 16 × accumulate 2) | jupiter `outputs/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt` |
 
-Byte gate (paper checkpoint, 204 test shapes, seed 0, PyTorch deterministic mode, 4090 lock;
+The gate (paper checkpoint, 204 test shapes, seed 0, PyTorch deterministic mode, 4090 lock;
 inference only, not training; all paths absolute because the driver `chdir`s):
 
 ```bash
@@ -85,9 +100,16 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 ```
 
 Routine steps pass `scripts/internal/gate/subset20.txt` (20 shapes, 164 s); without it the gate runs all 204
-(`$L/test_agentic_clean.txt`, about 24 min), for the final check before the D7 merge and for steps
-that touch the loader or the model. Each shape's seed depends only on its sha, so a subset gives the
-same bytes. The compare checks `pred_emission.png` by default; compare all four files. The baseline `$L/pred_gate_det1_seed00` exists only on this workstation's disk.
+(`$L/test_agentic_clean.txt`, about 24 min), for the final check before the merge (step 17) and for
+steps that touch the loader or the model. Each shape's seed depends only on its sha, so a subset gives
+the same bytes. The compare checks `pred_emission.png` by default; compare all four files. The
+baseline `$L/pred_gate_det1_seed00` exists only on this workstation's disk.
+
+Pass rule: `same=N different=0 missing=0` (N = 20 or 204), or, where shapes differ, a numeric
+comparison (step 7 adds it: per shape, the mean and max absolute pixel difference, plus the
+evaluator's IoU, MAE and PSNR) shows every difference within the noise of two `pre-refactor` runs on
+the same GPU type. `missing` must always be 0. With D2 = both, the gate also runs the release
+checkpoint on release test shapes, against its own baseline (step 7).
 
 ## Keep stable (other code depends on these)
 
@@ -125,25 +147,30 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
    step 5, kept on this branch) and `../evaluation/newdata_eval/infer_texgen_v2_venus05.sbatch:78-91` all check it out, and
    the worktree `.claude/worktrees/texgen-v2` sits on it (used by
    `../evaluation/newdata_eval/sweeps/job_texgen.sh:16`, `stage_texgen_host.sh:22`, and pinned in
-   `../evaluation/newdata_eval/tests/test_run_texgen_infer.py:16`). Moving them to `main` is step 17.
-10. The directory name `TEXGen/` and the `outputs/<run>/{ckpts,configs}` layout.
+   `../evaluation/newdata_eval/tests/test_run_texgen_infer.py:16`). Moving them to `main` is step 18.
+10. The directory name `TEXGen/` until step 17 renames it to `TEXGen-Emission/` (D4), with every
+    parent reference in the same change; the `outputs/<run>/{ckpts,configs}` layout.
 
 ## Open decisions
 
 - [x] **D1 Removal** (before step 2). Delete (tag `pre-trim-2026-09-16` keeps everything) or move to
   `deprecated/` (the current convention; it already holds 54 files)? Recommended: delete.
   **Answer (2026-09-29):** delete.
-- [ ] **D2 Live runs** (before step 7). Paper run only, or paper and release retrain? The inference code
+- [x] **D2 Live runs** (before step 7). Paper run only, or paper and release retrain? The inference code
   is the same; the release row is in `../docs/evaluation.md:1051`, not in the paper. Recommended:
-  both.
-- [ ] **D3 Behavior** (before step 8). Cleanup steps change no behavior (gate `same=204` each time);
-  fixes come later, one per step, only if wanted. Recommended: yes.
-- [ ] **D4 Names** (before step 8). Keep `TEXGen/`, the class paths and the inference signature.
-  Recommended: keep.
-- [ ] **D5 Training check** (before step 7). For steps that touch training code: a short deterministic
+  both. **Answer (2026-10-06):** both; the checks cover the paper and the release checkpoints.
+- [x] **D3 Behavior** (before step 8). Cleanup steps change no behavior (the gate passes each time);
+  fixes come later, one per step, only if wanted. Recommended: yes. **Answer (2026-10-06):** yes.
+- [x] **D4 Names** (before step 8). Keep `TEXGen/`, the class paths and the inference signature.
+  Recommended: keep. **Answer (2026-10-06):** the directory becomes `TEXGen-Emission/`, the paper's
+  name (asked as "TEXGen_emission", spelling confirmed against the paper). The rename is a
+  parent-repo change, so it happens at the merge (step 17). The class paths and the `inference_samples`
+  signature stay: published configs and checkpoints name the paths (Keep stable #2), and the folds
+  keep them alive as aliases.
+- [x] **D5 Training check** (before step 7). For steps that touch training code: a short deterministic
   GPU run, loss at step N compared before and after, plus one resume from a real checkpoint. Reseed
   (`pl.seed_everything`) right before `trainer.fit`, because removing LPIPS or a CLIP build shifts the
-  CPU random stream. Recommended: yes.
+  CPU random stream. Recommended: yes. **Answer (2026-10-06):** yes.
 - [x] **D6 Paper ablation variants** (before step 6). Keep or drop the GT-mask conditioning and
   mask-classification code paths? Only the 1k and overfit configs use them; the paper mentions the
   GT-mask variant only in commented-out text (`../paper_draft/sec/6_experiment.tex:20`). If kept,
@@ -159,7 +186,7 @@ same bytes. The compare checks `pred_emission.png` by default; compare all four 
   `.claude/worktrees/refactor`, started at tag `pre-refactor` (`de78afc` = `main` with steps 1–5b and
   this file committed). Steps 1–5b were committed directly on `main` before that (only the step-1
   merge is pushed). Open: when the parent pointer is bumped (still `6096a63`).
-- [ ] **D8 Cut-over** (before step 17). After the refactor, do the launchers, the worktree and the staged
+- [ ] **D8 Cut-over** (before step 18). After the refactor, do the launchers, the worktree and the staged
   `TEXGen.tar` move to `main`, or stay on the frozen branch?
 - [x] **D9 Upstream code we do not use** (before step 8). Under direct editing, upstream files and
   blocks our runs never reach (`camera.py`, `isosurface.py`, `networks.py`, `timestep.py`,
@@ -309,14 +336,21 @@ rest; keeping or dropping their code paths was still open then (later answered: 
 paper config also on branch `texgen-74k-v2-venus05`). No code reads any of them (the only code path
 under `configs/` is the release launcher's `CONFIG`, which names the kept file). Nothing pushed.
 
-### 7. Training-check setup (no code change)
+### 7. Check setup: the training check and the noise baselines (no code change)
+
+Everything here runs on tag `pre-refactor` and in parallel across machines (How we work).
 
 - [ ] A small local training root (N shapes: parquet, split JSON, thumbnails, alpha) and a local-paths
   override config; the live configs point at `/localscratch/...` and `${SLURM_TMPDIR}`, which do not
   exist on the workstation. Or reuse
   `../.superpowers/sdd/2026-09-16-texgen-restructure/cpu_training_smoke/smoke.py`.
-- [ ] Run the check twice on unchanged code to measure its noise before comparing anything.
-- [ ] If D2 = both: pull the release checkpoint and its `configs/parsed.yaml` (rsync + sha256).
+- [ ] Training check noise: run it twice on unchanged code, per GPU type it will run on.
+- [ ] The numeric gate comparison (per shape: mean and max absolute pixel difference; the evaluator's
+  IoU, MAE and PSNR), as a script under `scripts/internal/gate/`.
+- [ ] Gate noise: run the gate twice on unchanged code, per GPU type it will run on (the workstation
+  4090 already has one deterministic baseline; it needs a second run for its noise).
+- [ ] D2 = both: pull the release checkpoint and its `configs/parsed.yaml` (rsync + sha256), pick a
+  release-shape subset, and make its baseline and noise runs.
 
 **Instructions:**
 
@@ -507,7 +541,32 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
 
 **Result:**
 
-### 17. Cut-over (optional, per D8)
+### 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
+
+The steps before this one live on branch `refactor`; this one leaves the worktree, so it waits for a
+go (How we work, stop rule 4).
+
+- [ ] The full gate (all 204 shapes) and the training check on the branch's head, against the
+  `pre-refactor` baselines.
+- [ ] Merge `refactor` into `main` in TEXGen.
+- [ ] Rename the submodule directory `TEXGen/` → `TEXGen-Emission/` in the parent (D4), in the same
+  parent commit as the pointer bump: `.gitmodules`, the gitlink, and every parent reference to
+  `TEXGen/` (search again at this step; on 2026-10-06 about 20 files, among them
+  `../evaluation/newdata_eval/run_texgen_infer.py` (its default root), its test
+  `tests/test_run_texgen_infer.py`, `sweeps/job_texgen.sh`, `sweeps/stage_texgen_host.sh`,
+  `sweeps/star2/texgen_worker.sbatch`, `infer_texgen_v2_venus05.sbatch`, `seedutil.py`,
+  `../data_processing/data_preparation/README.md` and its `tests/test_encoding_parity.py`,
+  `../.claude/rules/texgen.md` (also its `paths:` front matter), `../AGENTS.md`). The `texgen-v2`
+  worktree moves with the directory.
+- [ ] The parent doc fixes listed under "Due at the merge".
+- [ ] Open at this step: rename the GitHub repository `dongchen-yang/TEXGen` too? The staged
+  `TEXGen.tar` on jupiter unpacks to `TEXGen/` (its consumers change in step 18).
+
+**Instructions:**
+
+**Result:**
+
+### 18. Cut-over (optional, per D8)
 
 Move the consumers to the refactored `main`: the `texgen-v2` worktree, the `BRANCH=` lines in
 `scripts/internal/fir/train_lightgenbench_alpha_fir.sh:61,157` (the paper launcher's copy lives only on the
@@ -536,7 +595,7 @@ on jupiter and delete the Solar nodes' `.tree_ok` so they unpack it again.
 ## Due at the merge into `main` (parent repo)
 
 The parent's docs describe `TEXGen/` on `main`; they change when `refactor` merges and the pointer is
-bumped, not before.
+bumped (step 17), not before.
 
 - [ ] Step 6: `../docs/baselines/texgen.md:12-30,48` (the config table and the `_v2` config row) and
   `../.claude/rules/texgen.md` (the 74k and overfit commands, the overfit configs line, the
