@@ -49,6 +49,10 @@ the code behind the paper and release runs, generic entry points for LightgenBen
   class path alive is a one-line alias. Upstream code we do not use stays untouched, even inside files
   we edit. `git diff upstream/main -- <file>` shows what we changed.
 - A doc that names a removed file is fixed in the same step.
+- Each step updates TEXGen's own docs it affects (`CLAUDE.md`, `README.md`, `LIGHTGEN_WORKFLOW.md`)
+  in the same commit. Parent docs (`AGENTS.md`, `.claude/rules/texgen.md`, `docs/baselines/texgen.md`)
+  describe `main` and change only at the merge: a step that makes one stale adds an item to step 17's
+  parent-docs list.
 - All edits happen in the worktree `.claude/worktrees/refactor` (branch `refactor`, from tag
   `pre-refactor`); `git diff pre-refactor` shows every edit. The main checkout stays on `main`.
 - In the main checkout: never `git add -A` (the `texgen-v2` worktree is untracked there) and never
