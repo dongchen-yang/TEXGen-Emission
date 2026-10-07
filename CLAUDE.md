@@ -53,28 +53,33 @@ python launch.py --config <config.yaml> --gpu 0 --train system.optimizer.args.lr
 ### Checking a code change
 Tooling in `scripts/internal/gate/`; data and run outputs stay outside the repo, in
 `/local-scratch/localhome/dya78/lightgen_eval_local/refactor_checks/`. Compare a run only with a
-baseline from the same GPU type: `baselines.json` lists them per type (RTX 4090, L40S);
-`REFACTOR_TODO.md` steps 7 and 7b say how they were made. Two runs of unchanged code do not always
-agree: now and then a process gives a second output, at most 1/255 apart (step 7b, open).
+baseline from the same GPU type: `baselines.json` lists, per type (RTX 4090, L40S) and check, the
+baseline and at least 4 envelope runs of tag `pre-refactor`. Two runs of unchanged code do not always
+agree (now and then a process gives a second output, at most 1/255 apart), so a check passes when no
+difference from the baseline exceeds the largest between any two envelope runs, per measure, and a
+result outside it is rerun once on another GPU of the type (`REFACTOR_TODO.md`, How we work; step 7b).
 - `python3 scripts/internal/gate/fanout.py --rev <commit> [--checks paper,release,fresh,resume]
   [--paper_shas <file>] [--plan]` — the one command. It probes the workstation 4090, sp4090, xg4090
-  and our Solar L40S nodes once, sends work only to GPUs that are free right now (a busy GPU, a held
+  and the Solar L40S nodes once (ours unpinned; theia-lab's cs-venus-18/20 with `-w`, where we rank
+  below their owners and cannot evict anyone), sends work only to GPUs that are free right now (a busy GPU, a held
   lock or a host short of RAM is skipped, never waited on), splits the paper gate over all of them,
   runs the release gate and both training checks beside it, compares each result with its own GPU
-  type's baseline and prints one verdict: exit 0 PASS, 1 FAIL, 2 INCOMPLETE (with the command that
-  finishes it), 3 NOTHING_FREE. `--stage <host>` then `--qualify <host>` admit a new lab 4090
-  (subset20 on tag `pre-refactor` must be IDENTICAL to the 4090 baseline).
+  type's baseline and envelope, reruns once what falls outside, and prints one verdict: exit 0 PASS,
+  1 FAIL, 2 INCOMPLETE (with the command that finishes it), 3 NOTHING_FREE. `--stage <host>` then
+  `--qualify <host>` admit a new lab 4090 (subset20 on tag `pre-refactor` must pass against the 4090
+  envelope).
 - `gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas> [<data_root> <parquet>]]` — deterministic
   inference, seed 0, on the paper gate data (the paper-era test bake) by default; the release gate
   passes the release check root and its parquet as the last two arguments. `GATE_LOCK_WAIT=0` tries
   the 4090 lock once instead of waiting up to 3 h. Writes `<out_dir>/gpu.txt` (host and card).
-- `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--noise_a <run1> --noise_b <run2>]`
-  — byte identity, pixel differences and the evaluator's IoU, MAE and PSNR per shape; verdict
-  IDENTICAL or WITHIN_NOISE (exit 0) against the noise of two baseline runs.
+- `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--envelope <run> ... --envelope_shas
+  <all shapes> --envelope_json <cache>]` — byte identity, pixel differences and the evaluator's IoU,
+  MAE and PSNR per shape; verdict IDENTICAL or WITHIN_NOISE (exit 0) against the envelope runs.
 - `train-check.sh <texgen_root> <out_dir> fresh|resume [<resume_ckpt>]` — a short deterministic
   `launch.py --train` on the release check root, reseeded right before `trainer.fit`, every step
   recorded; `resume` starts from `<resume_ckpt>`, by default the release checkpoint.
-  `compare_traincheck.py --a <record> --b <record>` compares two runs.
+  `compare_traincheck.py --a <record> --b <record> [--envelope <record> ...]` compares two runs; the
+  structure must match exactly, the numbers lie within the envelope.
 - `make_check_root.py --hf <dir> --fetch`, then `--hf <dir> --out <root>` — the release check root
   (16 train, 2 val, 20 test shapes, `check_root_splits.json`) from the Hugging Face release
   `3dlg-hcvc/LightgenBench` at a pinned revision: six tars, checked against the release's

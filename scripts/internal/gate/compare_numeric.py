@@ -1,8 +1,19 @@
 """Numeric gate comparison: how far a candidate prediction root is from a baseline, and whether
-that distance is within the noise of two runs of unchanged code on the same GPU type.
+that distance is within the measured noise of unchanged code on the same GPU type.
 
   python compare_numeric.py --a <baseline> --b <candidate> --shas_file <shas>
-      [--noise_a <run1> --noise_b <run2>] [--csv <per-shape.csv>]
+      [--envelope <run> <run> ... [--envelope_shas <shas>] [--envelope_json <cache>]]
+      [--csv <per-shape.csv>]
+
+The envelope (REFACTOR_TODO.md, How we work) comes from several runs of tag pre-refactor on that GPU
+type: every pair of them is compared like a candidate, over --envelope_shas (default --shas_file;
+give the check's full shape list, so that every shard of a check meets the same envelope), and per
+measure the largest per-shape difference of any pair is the bound. The measures, per shape: for
+each file the mean and the max absolute pixel difference, and |dIoU|, |dMAE|, |dPSNR|. A candidate
+is within the envelope when, for every measure, no shape of it differs from the baseline by more.
+(The change of the mean IoU, MAE, PSNR is printed, not tested: it is bounded by the per-shape ones.)
+--envelope_json caches the envelope; it is recomputed when the runs or the shapes differ.
+--noise_a <run1> --noise_b <run2> is the same as --envelope <run1> <run2>.
 
 Both roots are laid out <root>/<sha>/{pred_emission,gt_emission,mask,input_albedo}.png. Per shape
 and per file it reports byte identity and the mean and max absolute pixel difference (in 1/255
@@ -19,15 +30,16 @@ one side only. Every other NaN or infinity also counts as a failure, never as a 
 
 Verdict (exit 0 for the first two):
   IDENTICAL     every file byte-identical, nothing missing
-  WITHIN_NOISE  nothing missing, and for every file and every statistic (per-shape mean and max
-                pixel difference; |dIoU|, |dMAE|, |dPSNR|; the change of the mean IoU, MAE, PSNR)
-                the candidate's mean and max over shapes are <= the noise pair's, on the same shapes
-  DIFFERENT     no noise pair given and something differs, or something is missing
-  OUTSIDE_NOISE a statistic exceeds the noise pair's
+  WITHIN_NOISE  nothing missing, and every measure within the envelope
+  DIFFERENT     no envelope given and something differs, or something is missing
+  OUTSIDE_NOISE a measure exceeds the envelope
   EMPTY         the shapes file lists no shape
 """
 import argparse
 import csv
+import hashlib
+import itertools
+import json
 import math
 import os
 import sys
@@ -138,19 +150,63 @@ def report(tag, s, counts):
               + (f";  undefined on {ua} / {ub} shapes (no occupied texel)" if ua or ub else ""))
 
 
+MEASURES = [f"{fn[:-4]}_{stat}" for fn in FILES for stat in ("mean", "max")] + [f"d{m}" for m in METRICS]
+
+
+def envelope(runs, shas, cache=None):
+    """Per measure, the largest per-shape difference between any two runs; cached in `cache`."""
+    key = {"runs": [os.path.abspath(r) for r in runs], "n": len(shas),
+           "shas_sha256": hashlib.sha256("\n".join(shas).encode()).hexdigest()}
+    if cache and os.path.isfile(cache):
+        with open(cache) as f:
+            e = json.load(f)
+        if all(e.get(k) == v for k, v in key.items()):
+            return e
+    pairs = {}
+    for i, j in itertools.combinations(range(len(runs)), 2):
+        s, counts = summarize(compare_pair(runs[i], runs[j], shas))
+        if sum(counts[fn[:-4]]["missing"] for fn in FILES):
+            sys.exit(f"envelope runs {runs[i]} and {runs[j]} are missing files for these shapes")
+        pairs[f"{i}-{j}"] = {"identical": all(counts[fn[:-4]]["identical"] == len(shas) for fn in FILES),
+                             "measures": {k: s[k][1] for k in MEASURES}}
+    env = {k: max(p["measures"][k] for p in pairs.values()) for k in MEASURES}
+    if any(not math.isfinite(v) for v in env.values()):
+        sys.exit("an envelope pair has a NaN or infinity in a measure; it is not a noise envelope")
+    e = {**key, "measures": env, "pairs": pairs}
+    if cache:
+        os.makedirs(os.path.dirname(os.path.abspath(cache)), exist_ok=True)
+        with open(cache + ".part", "w") as f:
+            json.dump(e, f, indent=1)
+        os.replace(cache + ".part", cache)
+    return e
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--a", required=True, help="baseline root (tag pre-refactor)")
-    ap.add_argument("--b", required=True, help="candidate root")
+    ap.add_argument("--b", help="candidate root (omitted: only measure and print the envelope)")
     ap.add_argument("--shas_file", required=True)
-    ap.add_argument("--noise_a", help="noise pair: first run of pre-refactor on the same GPU type")
-    ap.add_argument("--noise_b", help="noise pair: second run")
+    ap.add_argument("--envelope", nargs="+", help="two or more runs of pre-refactor on the same GPU type")
+    ap.add_argument("--envelope_shas", help="shapes the envelope is measured over (default: --shas_file)")
+    ap.add_argument("--envelope_json", help="cache file for the envelope")
+    ap.add_argument("--noise_a", help="same as --envelope <noise_a> <noise_b>")
+    ap.add_argument("--noise_b")
     ap.add_argument("--csv", help="write the candidate's per-shape rows here")
     a = ap.parse_args(argv)
+    runs = a.envelope or ([a.noise_a, a.noise_b] if a.noise_a and a.noise_b else None)
+    if runs is not None and len(runs) < 2:
+        sys.exit("--envelope needs two or more runs")
     shas = [l.strip() for l in open(a.shas_file) if l.strip()]
     if not shas:
         print(f"[numeric] n=0 verdict=EMPTY ({a.shas_file} lists no shape)")
         return 1
+    if a.b is None:
+        if runs is None:
+            sys.exit("without --b, give --envelope")
+        e = envelope(runs, shas, a.envelope_json)
+        print(f"[envelope] {len(runs)} runs, {len(e['pairs'])} pairs ({sum(p['identical'] for p in e['pairs'].values())} "
+              f"identical), {len(shas)} shapes: " + ", ".join(f"{k} {e['measures'][k]:.3g}" for k in MEASURES))
+        return 0
     rows = compare_pair(a.a, a.b, shas)
     s, counts = summarize(rows)
     report("candidate", s, counts)
@@ -164,19 +220,21 @@ def main(argv=None):
     identical = all(counts[fn[:-4]]["identical"] == len(shas) for fn in FILES)
     if identical:
         verdict = "IDENTICAL"
-    elif missing or not (a.noise_a and a.noise_b):
+    elif missing or runs is None:
         verdict = "DIFFERENT"
     else:
-        ns, ncounts = summarize(compare_pair(a.noise_a, a.noise_b, shas))
-        report("noise", ns, ncounts)
-        if sum(ncounts[fn[:-4]]["missing"] for fn in FILES):
-            sys.exit("the noise pair is missing files for these shapes")
-        keys = [k for k in s if not k.startswith("mean_") or k.endswith("_change")]
-        if any(not math.isfinite(v) for k in keys for v in ns[k]):
-            sys.exit("the noise pair has a NaN or infinity in its statistics; it is not a noise baseline")
-        # `not (<=)`, so that a NaN in the candidate counts as over the noise
-        over = [k for k in keys if not (s[k][0] <= ns[k][0] and s[k][1] <= ns[k][1])]
-        verdict = "WITHIN_NOISE" if not over else "OUTSIDE_NOISE (" + ", ".join(sorted(over)) + ")"
+        eshas = [l.strip() for l in open(a.envelope_shas)] if a.envelope_shas else shas
+        eshas = [x for x in eshas if x]
+        if set(shas) - set(eshas):
+            sys.exit("--shas_file lists shapes the envelope is not measured over")
+        e = envelope(runs, eshas, a.envelope_json)
+        env = e["measures"]
+        print(f"[envelope] {len(runs)} runs, {len(e['pairs'])} pairs ({sum(p['identical'] for p in e['pairs'].values())} "
+              f"identical), {len(eshas)} shapes: " + ", ".join(f"{k} {env[k]:.3g}" for k in MEASURES))
+        # `not (<=)`, so that a NaN in the candidate counts as over the envelope
+        over = [k for k in MEASURES if not (s[k][1] <= env[k])]
+        verdict = "WITHIN_NOISE" if not over else "OUTSIDE_NOISE (" + ", ".join(
+            f"{k} {s[k][1]:.3g} > {env[k]:.3g}" for k in sorted(over)) + ")"
     print(f"[numeric] n={len(shas)} verdict={verdict}")
     return 0 if verdict in ("IDENTICAL", "WITHIN_NOISE") else 1
 

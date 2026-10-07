@@ -1,7 +1,12 @@
 """Compare two training-check records (train-check.sh's <out_dir>/record.jsonl).
 
   python compare_traincheck.py --a <baseline record> --b <candidate record>
-      [--noise_a <run1 record> --noise_b <run2 record>]
+      [--envelope <record> <record> ...]
+
+The envelope (REFACTOR_TODO.md, How we work) comes from several records of tag pre-refactor on that
+GPU type: every pair is compared like a candidate, and per quantity the largest difference of any
+pair is the bound; all of them must have --a's structure. --noise_a <r1> --noise_b <r2> is the same
+as --envelope <r1> <r2>.
 
 First the structure must match: the same training steps in the same order with the same batch
 scene ids, the same validation and test passes, and a saved checkpoint with the same keys, epoch,
@@ -16,12 +21,13 @@ infinities as an infinite difference, so a run that turns NaN can never pass.
 
 Verdict (exit 0 for the first two):
   IDENTICAL     structure matches and every number is equal
-  WITHIN_NOISE  structure matches, and every quantity's largest difference is <= the noise pair's
-  DIFFERENT     structure differs, or numbers differ and no noise pair was given
-  OUTSIDE_NOISE a quantity's largest difference exceeds the noise pair's
+  WITHIN_NOISE  structure matches, and every quantity's largest difference is <= the envelope's
+  DIFFERENT     structure differs, or numbers differ and no envelope was given
+  OUTSIDE_NOISE a quantity's largest difference exceeds the envelope's
   INCOMPLETE    a record has no training step or no checkpoint summary (an empty or cut-off run)
 """
 import argparse
+import itertools
 import json
 import math
 import sys
@@ -96,9 +102,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--a", required=True)
     ap.add_argument("--b", required=True)
-    ap.add_argument("--noise_a")
+    ap.add_argument("--envelope", nargs="+", help="two or more records of pre-refactor on the same GPU type")
+    ap.add_argument("--noise_a", help="same as --envelope <noise_a> <noise_b>")
     ap.add_argument("--noise_b")
     a = ap.parse_args(argv)
+    runs = a.envelope or ([a.noise_a, a.noise_b] if a.noise_a and a.noise_b else None)
+    if runs is not None and len(runs) < 2:
+        sys.exit("--envelope needs two or more records")
     ra, rb = load(a.a), load(a.b)
     empty = incomplete(ra, a.a) or incomplete(rb, a.b)
     if empty:
@@ -113,27 +123,31 @@ def main(argv=None):
         return 1
     d = diffs(ra, rb)
     nd = None
-    if a.noise_a and a.noise_b:
-        na, nb = load(a.noise_a), load(a.noise_b)
-        nempty = incomplete(na, a.noise_a) or incomplete(nb, a.noise_b)
-        if nempty:
-            sys.exit(f"the noise pair is incomplete: {nempty}")
-        nbad = first_mismatch(structure(na), structure(nb))
-        if nbad is not None:
-            sys.exit(f"the noise pair's structures differ: {nbad}")
-        if first_mismatch(structure(ra), structure(na)) is not None:
-            sys.exit("the noise pair is not the same check as --a (different steps or passes)")
-        nd = diffs(na, nb)
+    if runs is not None:
+        recs = [load(r) for r in runs]
+        for r, path in zip(recs, runs):
+            if incomplete(r, path):
+                sys.exit(f"an envelope record is incomplete: {incomplete(r, path)}")
+            if first_mismatch(structure(ra), structure(r)) is not None:
+                sys.exit(f"envelope record {path} is not the same check as --a: "
+                         f"{first_mismatch(structure(ra), structure(r))}")
+        nd = {}
+        pairs = list(itertools.combinations(range(len(recs)), 2))
+        for i, j in pairs:
+            for k, v in diffs(recs[i], recs[j]).items():
+                nd[k] = max(nd.get(k, 0.0), v)
         if any(math.isinf(v) for v in nd.values()):
-            sys.exit("the noise pair has a NaN or infinity on one side only; it is not a noise baseline")
+            sys.exit("an envelope pair has a NaN or infinity on one side only; it is not a noise envelope")
+        same = sum(all(v == 0.0 for v in diffs(recs[i], recs[j]).values()) for i, j in pairs)
+        print(f"[traincheck] envelope: {len(runs)} records, {len(pairs)} pairs ({same} identical)")
     for k in sorted(d):
-        print(f"[traincheck] {k:32s} max|d| {d[k]:.6g}" + (f"   noise {nd[k]:.6g}" if nd is not None else ""))
+        print(f"[traincheck] {k:32s} max|d| {d[k]:.6g}" + (f"   envelope {nd[k]:.6g}" if nd is not None else ""))
     if all(v == 0.0 for v in d.values()):
         verdict = "IDENTICAL"
     elif nd is None:
         verdict = "DIFFERENT"
     else:
-        over = [k for k in d if d[k] > nd[k]]
+        over = [k for k in d if not (d[k] <= nd[k])]   # a NaN counts as over
         verdict = "WITHIN_NOISE" if not over else "OUTSIDE_NOISE (" + ", ".join(sorted(over)) + ")"
     print(f"[traincheck] verdict={verdict}")
     return 0 if verdict in ("IDENTICAL", "WITHIN_NOISE") else 1
