@@ -13,7 +13,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 5b. Move the kept cluster scripts into `scripts/internal/`
 - [x] 6. Configs
 - [x] 7. Check setup: the training check and the noise baselines (no code change)
-- [ ] 7b. Release checks on Hugging Face data, and a fan-out driver
+- [x] 7b. Release checks on Hugging Face data, and a fan-out driver
 - [ ] 8. Fold our modules into upstream's originals
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
@@ -32,18 +32,21 @@ the code behind the paper and release runs, generic entry points for LightgenBen
   change. Cleanups change no behavior; fixes go under "Later", one step each, only if wanted.
 - Steps run one at a time, together with Dongchen: he gives the go and any **Instructions** for each
   step; when its checks pass, commit it, fill in its **Result**, report, and wait for the next go.
+- **Result** is at most three lines (what changed, commits, verdict); details live in CLAUDE.md,
+  commit messages and the step's report.
 - Inside a step, stop and ask for: (1) an open decision the step needs; (2) a check that fails, unless the
   cause is an obvious slip in the step; (3) something the plan does not cover (a needed fix, a
   behavior change, a file outside the step's list); (4) an action outside the worktree and our
   compute: a push, a parent-repo commit, the merge into `main`, a write to jupiter's shared tree.
   Jobs on our machines for the checks need no go.
 - After each step that touches code the gate must pass; steps that touch training code also need the
-  training check. A check passes when, measured against its baseline, no difference exceeds the
-  largest seen between any two of at least 4 runs of tag `pre-refactor` on the same GPU type (the
-  envelope, per measure: pixels, IoU/MAE/PSNR, the training check's recorded values; R20), and
-  `missing` is 0. A training check's structure (step order, batch ids, keys, pickled classes) must
-  match exactly. A result outside the envelope is rerun once on another GPU of that type before it
-  counts as failed, and both runs are reported (`fanout.py` does this; step 7b).
+  training check; `missing` must be 0. Gate images (all four files): a per-pixel difference of at
+  most 1/255 is noise and passes; a shape that differs by more must lie within the envelope, the
+  largest difference per measure (pixels, IoU/MAE/PSNR) between any two of at least 4 runs of tag
+  `pre-refactor` on the same GPU type (R20). IoU/MAE/PSNR deltas are reported but do not fail a shape
+  within 1/255. Training check: every recorded value within its envelope, the structure (step order,
+  batch ids, keys, pickled classes) exact. A result outside is rerun once on another GPU of that type
+  before it counts as failed, and both runs are reported (`fanout.py` does this; step 7b).
 - Run checks in parallel across our machines (workstation, lab 4090s, Solar, Alliance; the
   compute-access skill): split the full gate by shape list, run a training check's before, after and
   noise runs at once, prepare the next step while checks run (commit it only after the step before
@@ -89,9 +92,9 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 - Routine steps: `scripts/internal/gate/subset20.txt` (20 shapes, 164 s). Full: all 204
   (`$L/test_agentic_clean.txt`, about 24 min), for steps that touch the loader or the model and
   before the merge.
-- Compare all four files. Pass: `same=N different=0 missing=0`, or every difference within the
-  envelope (`compare_numeric.py --envelope`, How we work), after at most one rerun on another GPU of
-  the type. The release checkpoint gets its own gate (step 7).
+- Compare all four files. Pass: `missing=0`, and every shape within 1/255 per pixel in all four files
+  or within the envelope (`compare_numeric.py --envelope`, How we work), after at most one rerun on
+  another GPU of the type. The release checkpoint gets its own gate (step 7).
 - The 4090 baseline `$L/pred_gate_det1_seed00` exists only on the workstation.
 
 ## Keep stable (other code depends on these)
@@ -181,78 +184,9 @@ All runs on tag `pre-refactor`, in parallel across machines.
 
 **Instructions:**
 
-**Result:** Tooling only, in `scripts/internal/gate/`; data and run outputs in
-`$L/refactor_checks/` (`C` below), outside the repo. Every run used tag `pre-refactor`.
-
-- Built: `compare_numeric.py` (per shape and file: byte identity, mean and max pixel difference; the
-  evaluator's IoU, MAE and PSNR from `evaluation/pointsampled/metrics.py`, on the UV texels against
-  the baseline's GT, not point-sampled; verdict IDENTICAL, WITHIN_NOISE, DIFFERENT or OUTSIDE_NOISE).
-  `gate-det.sh` takes an optional data root and parquet (5th, 6th) and host overrides (`GATE_LOCK`,
-  `GATE_ACTIVATE`, `GATE_REPO`, `GATE_L`); its defaults are unchanged. `make_check_root.py` builds
-  the release check root `C/release_root`: 16 train, 2 val, 20 test release shapes, fixed in
-  `check_root_splits.json`, alpha inside the npz. The training check: `train-check.sh fresh|resume`,
-  `traincheck/traincheck.yaml` (extends the release config: the check root, batch 1, 2 epochs, one
-  save), `traincheck/sitecustomize.py` (deterministic mode, `pl.seed_everything(42)` right before
-  `trainer.fit` and a recording callback, all through PYTHONPATH), `traincheck/summarize_ckpt.py`,
-  `compare_traincheck.py`. `star2/checks.sbatch` runs all of it on one Solar L40S node.
-- The training check runs the real `launch.py --train`. fresh: from scratch, 32 steps, validation
-  after each epoch, `trainer.test`, one save. resume: from the release checkpoint, 17 steps
-  (Lightning first ends the checkpoint's own epoch with one batch), validation, test, one save. It
-  resumes the release checkpoint, not one the run writes: only a published checkpoint shows that the
-  code under test still loads its pickled classes, `_scheduler_states`, optimizer and EMA state.
-  Recorded: per step the batch ids, lr, loss, gradient norm and weight sum; per pass the metrics and
-  the EMA sum; for the saved file its keys, scheduler state, pickled classes and state sum. Batch 2
-  runs out of memory on a 4090. It runs without gradient accumulation (the release recipe used 2),
-  so the accumulation path is not covered. A NaN can never pass: `train-check.sh` stops on a
-  non-finite loss, and both comparisons count NaN on one side as a failure and refuse empty input.
-  Not the CPU `smoke.py`: its toy backbone skips the real model and it bypasses `launch.py` (steps
-  8b, 13).
-- Release checkpoint: main checkout `outputs/texgen_alpha_lightgenbench_v1/{ckpts,configs}`, sha256
-  `6c42a311…92aa` on both ends.
-- Noise of two runs: zero everywhere (every file byte-identical, every recorded number equal).
-  Corrected in step 7b: those pairs agreed by chance; unchanged code sometimes gives a second output
-  per process (at most 1/255), so checks now use an envelope of at least 4 runs.
-
-  | check | 4090, workstation | 4090, sp4090 | L40S, cs-venus-16 (4 GPUs) |
-  |---|---|---|---|
-  | paper gate, 204 | identical (`det1`, `det2`) | identical to the workstation | identical, each shape on another GPU |
-  | release gate, 20 | identical | identical to the workstation | identical |
-  | training check fresh | identical | out of memory (a desktop session holds 0.7 GB) | identical |
-  | training check resume | identical | identical to the workstation | identical |
-
-  Across GPU types outputs differ, as expected: L40S against 4090, 180 of 204 paper predictions
-  differ by at most 4/255 (mean IoU change 2e-5), and training differs from its first step.
-- Baselines. 4090 (workstation and sp4090): paper `$L/pred_gate_det1_seed00`, release
-  `C/gate/rtx4090-ws/release_test20_run1`, training `C/train/rtx4090-ws/{fresh,resume}_run1/record.jsonl`.
-  L40S: `C/gate/l40s-venus16/{paper_test204,release_test20}_run1`, `C/train/l40s-venus16/train_{fresh,resume}_run1.jsonl`.
-  Superseded by step 7b: the release check root `C/release_root` (from jupiter's `dataset_release`)
-  and the release and training baselines on it; they stay on disk. The paper baselines stand.
-- Run (absolute paths; `T` the tree under test, e.g. a `git archive` of the commit; python from the
-  `texgen` env):
-
-  ```bash
-  G=scripts/internal/gate
-  bash $G/gate-det.sh T <out> <paper ckpt> [$G/subset20.txt]                       # paper gate
-  bash $G/gate-det.sh T <out> <release ckpt> C/release_root/release_test20.txt \
-      C/release_root C/release_root/df_lightgenbench.parquet                        # release gate
-  python $G/compare_numeric.py --a <baseline> --b <out> --shas_file <shas>         # all four files
-  bash $G/train-check.sh T <out> fresh       # then resume
-  python $G/compare_traincheck.py --a <baseline record> --b <out>/record.jsonl
-  ```
-
-  sp4090 (gates and resume only): the inputs sit at the same paths under `C`; set
-  `GATE_LOCK=/local-scratch/localhome/dya78/lightgen_4090.lock GATE_ACTIVATE=C/tooling/activate_sp4090.sh
-  GATE_REPO=C/tooling/repo`. L40S: the header of `star2/checks.sbatch` (the tree goes to
-  `star2:refactor_checks/trees/`; submit without `-w` when a node shows 4 free L40S, then check
-  `sacct` for preemptions). Times: on a 4090 the paper gate 23 min, the release gate 2.5 min,
-  fresh 2 min, resume 1.5 min; on the L40S node the paper gate 16.5 min (4 GPUs), the release gate
-  7 min, fresh and resume together 5 min.
-- Found: (1) the shared Solar `texgen` env runs on sm_89 only (torchsparse fails on an A40;
-  `checks.sbatch` refuses other cards); (2) Lightning saves a checkpoint through a temp file in
-  `$TMPDIR` and the workstation's `/` has 7 GB free, so `train-check.sh` points `TMPDIR` at a short
-  directory on `/local-scratch` (a long one breaks the dataloader's sockets); (3) the paper
-  checkpoint's `configs/parsed.yaml` on jupiter differs from the workstation copy in `resume:` only,
-  which inference does not read.
+**Result:** The check tooling in `scripts/internal/gate/` (numeric comparison, release gate, training
+check, Solar sbatch) and the first `pre-refactor` baselines; commits `a1d0459`, `2223ff5`. Verdict:
+done; its zero-noise finding, release root and release baselines were superseded in step 7b.
 
 ### 7b. Release checks on Hugging Face data, and a fan-out driver
 
@@ -263,7 +197,7 @@ published paper numbers, and the release has different test shapes, bake and GT 
   (`3dlg-hcvc/LightgenBench`), not jupiter's `dataset_release`: fetch only the tars that hold the 38
   check shapes, verify them against the release's `checksums.sha256`, and rebuild the check root the
   release run's way (untar, then `scripts/lightgenbench/build_index.py`).
-- [ ] New `pre-refactor` baselines and noise runs on that root, per GPU type used; then re-check the
+- [x] New `pre-refactor` baselines and noise runs on that root, per GPU type used; then re-check the
   8a head against them.
 - [x] A fan-out driver: one command that probes every candidate GPU (How we work: never wait), splits
   the paper gate across every free 4090 (workstation, sp4090, xg4090 after a one-subset match check
@@ -276,71 +210,9 @@ published paper numbers, and the release has different test shapes, bake and GT 
 across the avaialble devices"; "dont have them waiting for the GPU all the time... just find the
 avaialbe ones and running them."
 
-**Result:** Tooling done; the head re-check fails on one L40S node (2026-10-06, "Head re-check" and
-"Not reproducible" below), so the middle item and the step stay open for a decision. Tooling in `scripts/internal/gate/`, data and
-outputs in `C = $L/refactor_checks`.
-
-- Data: `3dlg-hcvc/LightgenBench` at Hub revision `d152558a`, pinned in `make_check_root.py`. Fetched
-  `splits.json`, `checksums.sha256`, `metadata.parquet` and six tars, 1.6 GB in 17 s: the atlas and
-  thumbnail tars of train shard 36, val shard 0 and test shard 0 (`metadata.parquet` gives each
-  shape's shard). All eight files match the release's `checksums.sha256`; `splits.json` also matches
-  the sha256 the release runs pin. The downloaded `checksums.sha256` and `splits.json` equal
-  jupiter's `dataset_release_hf` copies. The root `C/hf_root` (77 MB, `MANIFEST.sha256`) is built
-  the release run's way: tar extraction with the launcher's renames, then `build_index.py` and its
-  check.
-- Shapes (`check_root_splits.json`): 16 train shapes, stride 27 over the 426 sorted uuids of train
-  shard 36; the 2 val and 20 test shapes of step 7. Their arrays and thumbnails decode exactly as in
-  the old root, and the release gate of `pre-refactor` is byte-identical on both roots.
-- Pass rule (Dongchen, ruling R20; How we work): the envelope of at least 4 `pre-refactor` runs per
-  GPU type and check. `compare_numeric.py --envelope` and `compare_traincheck.py --envelope` measure
-  every pair of runs; per measure, the largest per-shape difference is the bound. Gate envelopes are
-  cached in `C/envelopes/`, over the check's full shape list. `fanout.py` uses a check on a type only
-  with 4+ envelope runs on disk, and reruns once anything outside the envelope.
-- Envelopes (`baselines.json`), all `pre-refactor`:
-
-  | type | check | runs (where) | envelope |
-  |---|---|---|---|
-  | 4090 | paper | 5 (`det1`, `det2`, sp4090, two runs split over workstation and sp4090) | zero: all identical |
-  | 4090 | release | 5 (workstation ×3, sp4090 ×2) | zero |
-  | 4090 | fresh | 4 (workstation) | zero |
-  | 4090 | resume | 4 (workstation ×2, sp4090 ×2) | zero |
-  | L40S | paper | 6 (cs-venus-16 ×2, cs-venus-20 ×2, cs-venus-15 ×2; 24 processes) | zero |
-  | L40S | release | 4 (cs-venus-15 ×2, cs-venus-20 ×2) | zero |
-  | L40S | fresh | 4 (cs-venus-15 ×2, cs-venus-20 ×2) | zero |
-  | L40S | resume | 8 (cs-venus-15 ×6, cs-venus-20 ×2) | two outcomes (16 of 28 pairs equal): loss ≤ 1.2e-4, val/psnr ≤ 3.1e-4, test/psnr ≤ 7.6e-4 |
-
-  So the noise of `pre-refactor` is zero everywhere except the L40S resume check.
-- Driver: `python3 scripts/internal/gate/fanout.py --rev <commit>` (`--plan` probes and plans only).
-  It probes the workstation and sp4090/xg4090, our L40S nodes cs-venus-15/16/17 (no `-w`), and
-  theia-lab's cs-venus-18/20 (`-w`: we rank below their owners there, so a pinned job can be
-  preempted but cannot evict anyone; unpinned jobs never route there). It plans, submits Solar jobs
-  with `--deadline` (start within 2 min or Slurm cancels), runs the lab queues under their 4090
-  locks taken once, compares against each type's envelope, reruns once on another free GPU of the
-  type what falls outside, and prints PASS, FAIL, INCOMPLETE or NOTHING_FREE. `--stage`/`--qualify`
-  admit a lab 4090. `gate-det.sh`/`train-check.sh` take `GATE_LOCK_WAIT=0` and write `gpu.txt`.
-  `star2/checks.sbatch` takes a task file and runs one queue per GPU.
-- Negative control: the head with the guidance scale 1% larger, release gate on a 4090. Outside the
-  envelope (pixels up to 200/255, PSNR 0.26 dB), rerun on sp4090, still outside: FAIL, 6.0 min.
-- Head re-check (`--rev HEAD` = `9054f22`, code = 8a), end to end, 13 GPUs (workstation, sp4090,
-  cs-venus-15 ×4, cs-venus-20 ×4, cs-venus-18 ×3), wall 13.0 min. The 4090 results are all
-  IDENTICAL: paper (21 + 51 shapes), release, fresh, resume. The L40S paper shards on cs-venus-20 and
-  cs-venus-18 (7 × 12 shapes) are IDENTICAL. On cs-venus-15, 2 of 4 shards were outside the
-  envelope, and their reruns (cs-venus-15 again; Slurm chose it) were outside with the same numbers.
-  So the head FAILs (180/204 paper shapes passed).
-- Not reproducible on cs-venus-15 only for the head: a head process there either differs on every
-  shape (at most 1/255, |dIoU| ≤ 2.8e-3) or on none. 7 of 10 head processes there differed,
-  against 0 of 12 `pre-refactor` processes there (8 paper, 2 release, 2 fresh) and 0 of 7 head
-  processes on cs-venus-18/20. The trees differ in code only in the loader fold of 8a (same imports,
-  no randomness). The difference also tracks the shard layout: the head ran contiguous shards,
-  `pre-refactor` interleaved ones. Re-running `pre-refactor` on the head's exact shards on
-  cs-venus-15 separates the two; it was not free when tried. On the 4090 the head differed in one
-  process (this morning's release gate), against 0 in 9 `pre-refactor` release processes and 16
-  head reruns.
-- sp4090 crashed twice with a segfault (paper half 4:a, different shapes, 15:52 and 16:05, beside
-  kernel display-driver warnings); a subset20 run right after was IDENTICAL. That half ran on the
-  workstation instead.
-- Not used: xg4090 (its hostname does not resolve); Alliance (no open login socket).
-- Not touched: parent docs (none names the gate tooling).
+**Result:** Release check root from Hugging Face, the fan-out driver, the pass rule (1/255, envelope,
+rerun once) and its baselines; commits `9054f22`, `7f0586e` and the 1/255 commit after them. Verdict:
+head (code = 8a) PASS on the 4090 and the L40S (re-scored end-to-end run); negative control FAIL.
 
 ### 8. Fold our modules into upstream's originals
 
@@ -376,17 +248,9 @@ edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s 
 
 **Result:**
 
-- 8a. The loader is upstream's `spuv/data/mesh_uv.py`, edited in place: upstream's names stay
-  (`ObjaverseDataModuleConfig`, `ObjaverseDataset`, `ObjaverseDataModule`), our bodies moved verbatim
-  (AST-checked), upstream pieces we do not use untouched (the scene-list parser, `vertex_transform`,
-  `ObjaverseDataset.collate`, `__main__`, the unread config fields `uv_channel`, `mesh_name`,
-  `uv_name`). `spuv/data/lightgen_uv.py` re-exports it under our old names. Both published
-  `parsed.yaml` data sections are accepted and merge to the same values. Observable: the class
-  `__name__` and `__module__` (no checkpoint records the data module). Checks against
-  `pre-refactor`, all IDENTICAL: the paper gate, 204 shapes, all four files, on sp4090 against the
-  workstation's `det1`; the release gate and the resume check on sp4090 against the workstation
-  runs; the fresh check on an L40S (cs-venus-16, job 292117) against the L40S run. The workstation
-  runs were killed by the kernel's OOM killer (another session filled its 62 GB of RAM) and moved.
+- 8a. Our loader folded into upstream's `spuv/data/mesh_uv.py` (`lightgen_uv.py` re-exports it);
+  commit `a94fea4`. Verdict: every step-7 check IDENTICAL against `pre-refactor`; PASS again under
+  step 7b's driver and rule (re-scored head run).
 
 ### 9. Coverage run (no code change)
 

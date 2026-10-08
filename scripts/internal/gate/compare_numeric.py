@@ -15,6 +15,10 @@ is within the envelope when, for every measure, no shape of it differs from the 
 --envelope_json caches the envelope; it is recomputed when the runs or the shapes differ.
 --noise_a <run1> --noise_b <run2> is the same as --envelope <run1> <run2>.
 
+Tolerance first (Dongchen, 2026-10-07): a shape whose four files differ from the baseline by at most
+1/255 per pixel (TOLERANCE) is noise and passes, whatever the envelope says; its IoU, MAE and PSNR
+deltas are still reported. Only the shapes that differ by more meet the envelope.
+
 Both roots are laid out <root>/<sha>/{pred_emission,gt_emission,mask,input_albedo}.png. Per shape
 and per file it reports byte identity and the mean and max absolute pixel difference (in 1/255
 steps). For pred_emission it also scores both runs against the BASELINE's gt_emission.png over the
@@ -30,9 +34,9 @@ one side only. Every other NaN or infinity also counts as a failure, never as a 
 
 Verdict (exit 0 for the first two):
   IDENTICAL     every file byte-identical, nothing missing
-  WITHIN_NOISE  nothing missing, and every measure within the envelope
-  DIFFERENT     no envelope given and something differs, or something is missing
-  OUTSIDE_NOISE a measure exceeds the envelope
+  WITHIN_NOISE  nothing missing, every shape within the tolerance or, if over it, within the envelope
+  DIFFERENT     something is missing, or a shape is over the tolerance and no envelope was given
+  OUTSIDE_NOISE a shape over the tolerance exceeds the envelope in a measure
   EMPTY         the shapes file lists no shape
 """
 import argparse
@@ -150,6 +154,7 @@ def report(tag, s, counts):
               + (f";  undefined on {ua} / {ub} shapes (no occupied texel)" if ua or ub else ""))
 
 
+TOLERANCE = 1   # 1/255 steps: a larger per-pixel difference in any file meets the envelope
 MEASURES = [f"{fn[:-4]}_{stat}" for fn in FILES for stat in ("mean", "max")] + [f"d{m}" for m in METRICS]
 
 
@@ -218,11 +223,21 @@ def main(argv=None):
             w.writerows(rows)
     missing = sum(counts[fn[:-4]]["missing"] for fn in FILES)
     identical = all(counts[fn[:-4]]["identical"] == len(shas) for fn in FILES)
+    # Dongchen 2026-10-07: a shape whose four files differ by at most 1/255 per pixel is noise and passes
+    # whatever the envelope says; only larger differences meet the envelope.
+    big = [r for r in rows if not all(r.get(f"{fn[:-4]}_max", math.inf) <= TOLERANCE for fn in FILES)]
+    print(f"[tolerance] {len(rows) - len(big)} of {len(rows)} shapes within {TOLERANCE}/255 in all four files "
+          f"(noise, pass); {len(big)} differ by more")
     if identical:
         verdict = "IDENTICAL"
-    elif missing or runs is None:
+    elif missing:
+        verdict = "DIFFERENT"
+    elif not big:
+        verdict = "WITHIN_NOISE"
+    elif runs is None:
         verdict = "DIFFERENT"
     else:
+        s, _ = summarize(big)   # the envelope test covers only the shapes over the tolerance
         eshas = [l.strip() for l in open(a.envelope_shas)] if a.envelope_shas else shas
         eshas = [x for x in eshas if x]
         if set(shas) - set(eshas):

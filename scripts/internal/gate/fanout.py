@@ -6,6 +6,8 @@ verdict (REFACTOR_TODO.md step 7b; How we work: never wait for a GPU).
   python3 fanout.py --rev <commit>  [--checks paper,release,fresh,resume] [--paper_shas <file>]
   python3 fanout.py --tree <dir>    ...          a tree on the workstation (e.g. a git archive)
   python3 fanout.py ... --plan                   probe and print the plan, run nothing
+  python3 fanout.py --rescore <C>/fanout/<label> compare a finished run's stored outputs again under the
+                                                 current rule (no GPU); new summary_rescored_* files
   python3 fanout.py --stage <lab host>           stage a lab 4090: env, checkpoints, paper gate data
   python3 fanout.py --qualify <lab host>         subset20 of the paper gate on tag pre-refactor there,
                                                  against the 4090 envelope; a PASS admits the host
@@ -30,8 +32,9 @@ Run it on the workstation, from any directory; stdlib only (comparisons run in t
   4. Lab GPUs: one queue per GPU, all of it under that host's 4090 locks, each taken once (flock -n):
      a held lock skips the host. gate-det.sh and train-check.sh run with GATE_LOCK=none inside it.
   5. Outputs come back to <C>/fanout/<label>/out/; each task is compared with its own GPU type's
-     baseline and envelope (compare_numeric.py, compare_traincheck.py; the gate envelopes are cached in
-     <C>/envelopes/), and its gpu.txt must name a card of the type it was planned for.
+     baseline: gate images within 1/255 per pixel pass, larger differences meet the envelope; the
+     training check meets its envelope (compare_numeric.py, compare_traincheck.py; the gate envelopes
+     are cached in <C>/envelopes/). Its gpu.txt must name a card of the type it was planned for.
   6. Rerun once (R20): a task outside the envelope runs again, after a new probe, on another free GPU
      of the same type (the same GPU only when no other is free; on Solar, Slurm picks the GPU). It
      fails only if the rerun is outside too; the summary lists both runs.
@@ -308,6 +311,7 @@ class Run:
         self.results = {}       # task -> dict(worker, type, check, shas, out, status)
         self.pins = {}          # Solar job name -> node it is pinned to (other labs' nodes only)
         self.started = time.time()
+        self.results_dir = f"{self.fan}/results"
 
     # -- lab ------------------------------------------------------------------------------
     def lab_tree(self, host):
@@ -486,7 +490,7 @@ class Run:
         r = self.results[task]
         out, check, typ = r["out"], r["check"], r["type"]
         base = self.baselines[typ][check]
-        txt = f"{self.fan}/results/{task}.txt"
+        txt = f"{self.results_dir}/{task}.txt"
         gpu = ""
         if os.path.isfile(f"{out}/gpu.txt"):
             m = re.search(r"gpu=(.*)", open(f"{out}/gpu.txt").read())
@@ -777,7 +781,7 @@ def run_checks(a):
     return summarize(run, a, checks, shas)
 
 
-def summarize(run, a, checks, shas):
+def summarize(run, a, checks, shas, tag="", note=""):
     good = ("IDENTICAL", "WITHIN_NOISE")
     final = {}   # original task -> PASS | FAIL | UNRESOLVED | NOT_RUN
     for n, r in run.results.items():
@@ -798,7 +802,7 @@ def summarize(run, a, checks, shas):
     ran_fixed = {r["check"] for n, r in run.results.items() if final.get(n) == "PASS" and r["check"] in FIXED}
     missing_shas = [s for s in shas if s not in ran_paper]
     missing_checks = [c for c in checks if c in FIXED and c not in ran_fixed]
-    lines = [f"fanout {run.label}: tree {run.tree} {a.rev_sha or ''}".rstrip(),
+    lines = [f"fanout {run.label}: tree {run.tree} {a.rev_sha or ''}".rstrip()] + ([note] if note else []) + [
              f"{'task':<22}{'check':<9}{'type':<9}{'where':<26}{'n':>5}{'secs':>7}  verdict"]
     order = sorted(run.results.items(), key=lambda kv: (kv[1]["check"] != "paper", kv[1].get("rerun_of", kv[0]), kv[0]))
     for name, r in order:
@@ -824,14 +828,45 @@ def summarize(run, a, checks, shas):
         lines.append(f"to finish: python3 {os.path.abspath(__file__)} --tree {run.tree} --checks {','.join(rest)}"
                      + (f" --paper_shas {run.fan}/leftover_paper.txt" if missing_shas else ""))
     lines.append(f"VERDICT {verdict}")
-    with open(f"{run.fan}/summary.txt", "w") as f:
+    with open(f"{run.fan}/summary{tag}.txt", "w") as f:
         f.write("\n".join(lines) + "\n")
-    with open(f"{run.fan}/summary.json", "w") as f:
+    with open(f"{run.fan}/summary{tag}.json", "w") as f:
         json.dump({"verdict": verdict, "tree": run.tree, "rev": a.rev_sha, "results": run.results,
                    "wall_min": wall}, f, indent=1)
     print("\n".join(lines), flush=True)
-    say(f"summary: {run.fan}/summary.txt")
+    say(f"summary: {run.fan}/summary{tag}.txt")
     return code
+
+
+def rescore(fan):
+    """Compare every stored output of a finished fanout run again under the current rule (no GPU):
+    the round-1 tasks and the stored reruns. A task now outside the envelope whose rerun was never run
+    stays unresolved. Writes summary_rescored_<time>.{txt,json} and results_rescored_<time>/ beside
+    the originals, which stay as they were."""
+    fan = os.path.abspath(fan)
+    with open(f"{fan}/summary.json") as f:
+        old = json.load(f)
+    baselines, names, _ = load_baselines()
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    a = argparse.Namespace(label=os.path.basename(fan), tree_dir=old["tree"], rev_sha=old.get("rev"))
+    run = Run(a, baselines, names)
+    run.fan, run.results, run.results_dir = fan, old["results"], f"{fan}/results_rescored_{stamp}"
+    os.makedirs(run.results_dir)
+    for name, r in run.results.items():
+        r["verdict_before"] = r.get("verdict")
+        r.pop("final", None)
+        if r["status"] == "done":
+            run.compare(name)
+        else:
+            r["verdict"] = f"NOT_RUN ({r['status']})"
+    first = [r for r in run.results.values() if r.get("round", 1) == 1]
+    checks = [c for c in ("paper",) + FIXED if any(r["check"] == c for r in first)]
+    shas = [x for r in first if r["check"] == "paper" for x in r["shas"]]
+    for r in run.results.values():
+        r.setdefault("round", 1)
+    return summarize(run, a, checks, shas, tag=f"_rescored_{stamp}",
+                     note=f"re-scored {stamp} from the stored outputs under the current rule (no GPU run); "
+                          f"the original verdicts stay in summary.txt")
 
 
 def main():
@@ -840,6 +875,8 @@ def main():
     src.add_argument("--rev", help="the tree under test is git archive of this commit (in this repo)")
     src.add_argument("--tree", help="the tree under test: a TEXGen tree on the workstation")
     src.add_argument("--stage", metavar="HOST", help="stage a lab 4090 (sp4090, xg4090) and exit")
+    src.add_argument("--rescore", metavar="FANOUT_DIR", help="re-compare a finished run's stored outputs "
+                                                            "under the current rule (no GPU)")
     src.add_argument("--qualify", metavar="HOST", help="admit a lab 4090: subset20 on tag pre-refactor there "
                                                        "must be IDENTICAL to the 4090 baseline")
     ap.add_argument("--checks", default="paper,release,fresh,resume")
@@ -851,6 +888,8 @@ def main():
     ap.add_argument("--plan", action="store_true", help="probe and print the plan, run nothing")
     a = ap.parse_args()
     a.admit, a.rev_sha = None, None
+    if a.rescore:
+        return rescore(a.rescore)
     if a.stage:
         stage_host(a.stage)
         return 0
