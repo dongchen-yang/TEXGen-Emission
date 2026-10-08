@@ -5,8 +5,8 @@
 #
 # Install torch and torchvision first, from the index of your CUDA version, for example
 #   pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
-# then this file. torch-scatter must match the torch build; torchsparse, spconv and nvdiffrast are
-# compiled for the GPU (set TORCH_CUDA_ARCH_LIST to its architecture).
+# then this file. torch-scatter must match the torch build; torchsparse and nvdiffrast are compiled
+# for the GPU (set TORCH_CUDA_ARCH_LIST to its architecture); spconv is a prebuilt wheel per CUDA version.
 
 # The conditioning stack (CLIP image and text encoders, diffusers' schedulers) is version-sensitive:
 # these four are required exactly (tokenizers comes with transformers as 0.13.x). The paper and
@@ -17,6 +17,7 @@ huggingface_hub==0.25.2
 omegaconf==2.3.0
 
 pytorch-lightning==2.5.0.post0
+tensorboard==2.20.0          # launch.py always logs to TensorBoard
 torch-scatter==2.1.2
 spconv-cu118==2.3.8          # the spconv build matching your CUDA (e.g. spconv-cu120 for 12.x)
 git+https://github.com/mit-han-lab/torchsparse.git        # 2.1.0
