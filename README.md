@@ -1,112 +1,137 @@
-<p align="center">
+# TEXGen for emission maps
 
-  <h2 align="center">TEXGen: a Generative Diffusion Model for Mesh Textures<br>
-<span style="color: #8e44ad; font-size: smaller;">(SIGGRAPH Asia 2024, Journal Track, Best Paper Honorable Mention)</span>
-</h2>
-  <p align="center">
-    <a href="https://xinyu-andy.github.io/"><strong>Xin Yu</strong></a>
-    ·
-    <a href="https://yuanze.me"><strong>Ze Yuan</strong></a>
-    ·
-    <a href="https://scholar.google.com/citations?user=b7ZJV9oAAAAJ&hl=en"><strong>Yuan-Chen Guo</strong></a>
-    ·
-    <a href="https://scholar.google.com/citations?user=sjFapgUAAAAJ&hl=zh-CN"><strong>Ying-Tian Liu</strong></a>
-    ·
-    <a href="https://sites.google.com/view/jianhuiliu/home"><strong>JianHui Liu</strong></a>
-    ·
-    <a href="https://scholar.google.com/citations?user=a7AMvgkAAAAJ&hl=zh-CN"><strong>Yangguang Li</strong></a>
-    ·
-    <a href="https://yanpei.me"><strong>Yan-Pei Cao</strong></a>
-    ·
-    <a href="https://scholar.google.com/citations?user=Dqjnn0gAAAAJ&hl=zh-CN"><strong>Ding Liang</strong></a>
-    ·
-    <a href="https://xjqi.github.io/"><strong>Xiaojuan Qi</strong></a>
-    ·
-    </a>
-    <br>
-    <br>
-        <a href="https://arxiv.org/abs/2411.14740"><img src='https://img.shields.io/badge/arXiv-TEXGen-red' alt='Paper PDF'></a>
-        <a href='https://cvmi-lab.github.io/TEXGen/'><img src='https://img.shields.io/badge/Project_Page-TEXGen-green' alt='Project Page'></a>
-        </a>
-    <br>
-    <b>The University of Hong Kong &nbsp; | &nbsp;  VAST  | &nbsp;  Beihang University | &nbsp;  Tsinghua University</b>
-  </p>
-  <table align="center">
-    <tr>
-    <td>
-      <img src="static/teaser.jpg">
-    </td>
-    </tr>
-  </table>
+This repository adapts **TEXGen** from albedo to **emission**. Given a mesh's geometry and PBR
+materials baked into a UV atlas, and an image of the object, it generates the RGB emission map in UV
+space. It is the TEXGen baseline of LightgenBench
+([Hugging Face `3dlg-hcvc/LightgenBench`](https://huggingface.co/datasets/3dlg-hcvc/LightgenBench)).
 
-TEXGen is a feed-forward texture generation model which diffuses albedo texture map directly on the UV domain.
+TEXGen and most of this code are the work of its authors:
 
-## :rocket: :rocket: :rocket: **News**
-- **[2024-12-15]**: Release the inference code.
+> **TEXGen: a Generative Diffusion Model for Mesh Textures** (SIGGRAPH Asia 2024, Journal Track, Best
+> Paper Honorable Mention). Xin Yu, Ze Yuan, Yuan-Chen Guo, Ying-Tian Liu, JianHui Liu, Yangguang Li,
+> Yan-Pei Cao, Ding Liang, Xiaojuan Qi. The University of Hong Kong, VAST, Beihang University,
+> Tsinghua University.
+> [Paper](https://arxiv.org/abs/2411.14740) · [Project page](https://cvmi-lab.github.io/TEXGen/) ·
+> [Code](https://github.com/CVMI-Lab/TEXGen)
 
+If you use this code, please cite TEXGen ([below](#citation)).
 
-## Requirements
-The training process requires at least one GPU with VRAM bigger than 40GB. We test the whole pipeline using Nvidia A100 gpu. Other GPUs are not tested but may be fine. For testing only, a GPU with 24GB VRAM will be fine.
+## What differs from TEXGen
 
-## Environment
-#### Docker Image
-For convenience, it is welcomed to use our built-up docker image to run TEXGen.
-```shell
-docker run -it yuanze1024/texgen_release:v1 bash 
+- **Input.** Upstream bakes image features onto the mesh's UV map at run time. Here the loader
+  (`spuv/data/mesh_uv.py`) reads pre-baked 256 × 256 UV atlases (`somage.npz`), and the backbone
+  (`PointUVNet.forward`, `spuv/models/sparse_networks/texgen_network.py`) takes the noisy emission with
+  position, albedo, metallic, roughness, alpha and the occupancy mask: 13 channels.
+- **Target.** The emission map. Training (`spuv/systems/texgen_train.py`) uses MSE and L1 on the
+  flow-matching velocity, masked to occupied texels.
+- **Condition.** The CLIP embedding of the object's thumbnail, dropped 10% of the time for
+  classifier-free guidance.
+- **Timesteps.** The backbone receives t in [0, 1], not upstream's t × 1000; our models were trained so.
+
+The upstream files we changed are edited in place, so `git diff` against upstream shows every change:
+
+```bash
+git remote add upstream https://github.com/CVMI-Lab/TEXGen && git fetch upstream
+git diff upstream/main -- spuv/
 ```
 
-#### From Scratch
-Note that it could be really tricky to build an environment from scratch, so we strongly recommend you to use our docker image. You can also build your environment on your own:
-```shell
-apt-get install libgl1 libglib2.0-0 libsm6 libxrender1 libxext6 libssl-dev build-essential g++ libboost-all-dev libsparsehash-dev git-core perl libegl1-mesa-dev libgl1-mesa-dev -y
-conda create -n texgen python=3.10 -y
-conda activate texgen
-conda install ninja -y
-conda install -c "nvidia/label/cuda-11.8.0" cuda-toolkit -y
-conda install pytorch==2.1.0 torchvision==0.16.0 pytorch-cuda=11.8 -c pytorch -c nvidia -y
-conda install h5py pyyaml -c anaconda -y
-conda install sharedarray tensorboard tensorboardx yapf addict einops scipy plyfile termcolor timm gxx=11.1.0 lightning -c conda-forge -y
-conda install pytorch-cluster pytorch-scatter pytorch-sparse -c pyg -y
+## Setup
+
+```bash
+conda create -n texgen python=3.10 -y && conda activate texgen
+pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
 ```
 
-## Usage
-> **LightGen fork:** upstream's demo data (`assets/`), render tools (`tools/`) and
-> `configs/texgen_test.yaml` are not in this fork, so this section does not run here; it is kept as
-> upstream's reference. The originals are in [upstream TEXGen](https://github.com/CVMI-Lab/TEXGen).
-> The data layout below is what upstream's `spuv/data/mesh_uv.py` read; in this fork that loader
-> reads pre-baked UV atlases (`somage.npz`) instead.
+torchsparse and nvdiffrast are compiled for your GPU (set `TORCH_CUDA_ARCH_LIST`), and torchsparse
+needs the sparsehash headers (`apt-get install libsparsehash-dev`); spconv is a prebuilt wheel per CUDA
+version (`spconv-cu118` in the file). The four pins at the top of
+`requirements.txt` are required. Our runs used torch 2.1.0 + CUDA 11.8 (RTX 4090), torch 2.9.1 + CUDA
+12.8 (RTX PRO 6000 Blackwell) and torch 2.9.0 + CUDA 12.6 (H100).
 
-We provide the example testing data in `assets/models`. You can organize your own customized data as below:
-```shell
-$YOUR_DATA_PATH
-├── 34 # which is the first two character of the model id
-│   └── 3441609f539b46b38e7ab1213660cf3e # the unique id of a 3D model
-│       ├── model.mtl
-│       ├── model.obj
-│       └── model.png # albedo texture map
+Run every command below from the repository root, with
+
+```bash
+export TEXGEN_ENABLE_FLASH=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
-For the model indices input, see `assets/input_list/test_input.jsonl` for an example, where `result` represents the textual prompt.
 
-#### Inference
-For sanity checking, you can run the following code snippet.
-```shell
-CHECKPOINT_PATH="assets/checkpoints/texgen_v1.ckpt"
-# assume single gpu
-python launch.py --config configs/texgen_test.yaml --test --gpu 0 data.eval_scene_list="assets/input_list/test_input.jsonl" exp_root_dir=outputs_test name=test tag=test system.weights=$CHECKPOINT_PATH
+`TEXGEN_ENABLE_FLASH=0` selects the attention all our models were trained and evaluated with;
+`expandable_segments` avoids out-of-memory errors from fragmentation. On first use the code downloads
+two models from Hugging Face: `lambdalabs/sd-image-variations-diffusers` (CLIP image encoder, noise
+schedule) and the CLIP tokenizer and text encoder of `stabilityai/stable-diffusion-3.5-large`, which is
+gated: accept its license on its page first.
+
+## Data
+
+LightgenBench is gated: accept its terms on the dataset page, then log in (`huggingface-cli login`).
+
+```bash
+huggingface-cli download 3dlg-hcvc/LightgenBench --repo-type dataset --local-dir <download_dir> \
+    --include "splits.json" "checksums.sha256" "data/*/atlas/*.tar" "data/*/thumbnail/*.tar"
+bash scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_dir>
+export LIGHTGENBENCH_DATA=<data_dir>
 ```
-The results will be put in `<exp_root_dir>/<name>/<tag>@<time>`. 
 
-#### Model Checkpoint
-You can download our [trained checkpoint](https://huggingface.co/Andyx/TEXGen/tree/main), and put it under `assets/checkpoints`. Note that the released model is trained with Flow Matching which is different from the paper version, since we find it more stable. Check this [blog](https://diffusionflow.github.io/) to understand the connection between Flow Matching and Diffusion.
+The script checks every tar against `checksums.sha256`, unpacks the atlases and thumbnails, writes the
+index the loader reads, and checks that every shape of the split is on disk. That is 36,426 train /
+200 val / 200 test shapes: about 70 GB to download and 75 GB unpacked.
 
-During the whole process, some components (e.g. CLIP, time scheduler) from HuggingFace are required. So make sure you have the access to HF or to their checkpoints. The relevant components are listed here:
-```text
-lambdalabs/sd-image-variations-diffusers
-stabilityai/stable-diffusion-2-depth
+## Training
+
+```bash
+python launch.py --config configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml \
+    --gpu 0,1,2,3 --train
 ```
+
+This is the recipe of our release run: 4 GPUs × micro-batch 16 × gradient accumulation 2 = global
+batch 128, 125 epochs (35,625 steps), EMA, bf16. On 4 × H100 80 GB an epoch took about 18 minutes before
+validation, with a peak of 51 GB per GPU. Outputs go to `outputs/lightgen/texgen_alpha_lightgenbench_v1/`:
+a checkpoint every 5 epochs in `ckpts/` (12.4 GB each, about 310 GB in all) plus `last.ckpt`, from
+which the same command resumes. Training logs to TensorBoard (`tb_logs/`); add `--wandb` to log to
+Weights & Biases as well (project `LightGen`; set `wandb.project=<yours>`).
+
+With another number or size of GPUs, keep the global batch at 128: GPUs × `data.batch_size` ×
+`trainer.accumulate_grad_batches` = 128, for example `trainer.accumulate_grad_batches=1` on 8 GPUs, or a
+smaller `data.batch_size` with more accumulation on smaller cards. Any `key=value` after the command
+overrides the config.
+
+Do not choose a checkpoint by `val/psnr`: emission is sparse, so predicting little light scores well,
+and the metric peaks in the first epochs. We score the last epoch.
+
+## Inference on the test split
+
+```bash
+python -c "import json, sys; print('\n'.join(json.load(open(sys.argv[1]))['test']))" \
+    <download_dir>/splits.json > test_uuids.txt
+python inference_specific_samples.py \
+    --ckpt outputs/lightgen/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt \
+    --data_root "$LIGHTGENBENCH_DATA/texgen_root" --parquet "$LIGHTGENBENCH_DATA/df_lightgenbench.parquet" \
+    --shas_file test_uuids.txt --out_dir <out_dir> --seed 0
+```
+
+This writes `<out_dir>/<uuid>/{pred_emission,gt_emission,mask,input_albedo}.png`, 256 × 256 UV maps,
+using the EMA weights, 50 Euler steps and guidance scale 2.0. The model's config is read from the
+run's `configs/parsed.yaml`, beside `ckpts/`. Each shape's noise comes from its uuid and `--seed`, not
+from its place in the list, but outputs are not bit-reproducible: a rerun can differ by 1/255 on a few
+texels, and the same shape in a different list or order can differ more. A GPU with 24 GB is enough. The script prints each shape's PSNR and SSIM on the UV map; the
+benchmark's own scoring is not part of this repository.
+
+A checkpoint trained with this code before its October 2026 refactor (such as ours) names older
+classes: convert its config and checkpoint first with `scripts/convert_config.py` (usage in its header).
+
+## Repository
+
+| path | contents |
+|---|---|
+| `configs/` | the release config |
+| `spuv/` | the model, the loader, training and inference (upstream's package, edited in place) |
+| `launch.py`, `inference_specific_samples.py` | training and test entry point; inference on chosen shapes |
+| `scripts/lightgenbench/` | data preparation |
+| `scripts/convert_config.py` | older config and checkpoint class names to the current ones |
+| `scripts/internal/` | our cluster launchers and regression checks; not needed to use the code |
 
 ## Citation
+
 ```bib
 @article{10.1145/3687909,
     author = {Yu, Xin and Yuan, Ze and Guo, Yuan-Chen and Liu, Ying-Tian and Liu, Jianhui and Li, Yangguang and Cao, Yan-Pei and Liang, Ding and Qi, Xiaojuan},

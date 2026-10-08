@@ -10,18 +10,33 @@ The only config left is the release retrain's, `configs/lightgen_pointuv_256_bat
 (launcher `scripts/internal/fir/train_lightgenbench_alpha_fir.sh`). The configs of the three baseline
 variants (vanilla / GT-mask conditioning / mask-classification), the overfit configs and every other 74k
 config were deleted on 2026-10-06; tag `pre-refactor` keeps them, and the paper checkpoint carries its
-own `configs/parsed.yaml`. Workflow map: [`LIGHTGEN_WORKFLOW.md`](LIGHTGEN_WORKFLOW.md). Superseded
-overfit10 / sweep configs and stale docs were deleted 2026-09-29; git history keeps them (tag
-`pre-trim-2026-09-16`).
+own `configs/parsed.yaml`. Superseded overfit10 / sweep configs and stale docs were deleted
+2026-09-29; git history keeps them (tag `pre-trim-2026-09-16`).
 
-Upstream README's `configs/texgen_test.yaml` inference command is broken in this fork (config deleted in
-39c0452). `requirements.txt` lists what the code imports, at the versions of the `texgen` env (torch
+`README.md` is the users' doc (setup, LightgenBench data, training, inference on its test split; it
+keeps upstream's attribution and citation); this file is for working on the code. `requirements.txt` lists what the code imports, at the versions of the `texgen` env (torch
 2.1.0 + CUDA 11.8, Python 3.10); the four conditioning pins in it (transformers 4.28.1, diffusers 0.28.0,
 huggingface_hub 0.25.2, omegaconf 2.3.0) are required. Envs that ran this code: the workstation
 `texgen` (copied to star2 `~/envs/texgen` and the lab 4090s; the checks run in it), `texgen-bw` on
-cs-venus-05 (torch 2.9.1 + CUDA 12.8; the paper run trained there; recipe
+cs-venus-05 (torch 2.9.1 + CUDA 12.8; the paper run trained in it, on cs-venus-19 then cs-venus-05; recipe
 `scripts/star2/bootstrap_texgen_bw.sh` on branch `texgen-74k-v2-venus05`), and the fir venv plus a pin
 overlay (torch 2.9.0 + CUDA 12.6; the release run trained there; `../docs/status/checkpoints.md`).
+
+## Runs behind the results
+
+| | paper run | release run |
+|---|---|---|
+| name | `texgen_alpha_74k_v2_agentic` | `texgen_alpha_lightgenbench_v1` (wandb `hpi6907b`) |
+| data | 74k v2 agentic: 36,255 train / 387 val / 388 test | LightgenBench: 36,426 / 200 / 200 |
+| config | its own `configs/parsed.yaml` (tag `pre-refactor` keeps the source) | the one in `configs/` |
+| where | 4 × RTX PRO 6000 Blackwell: cs-venus-19 (job 248498, epochs 0–78), then cs-venus-05 (249206) | 4 × H100 80 GB: fir (job 60566255), finished on killarney (5589158) |
+| batch | per-GPU 32 × 4 GPUs = 128 | micro-batch 16 × accumulate 2 × 4 GPUs = 128 |
+| scored | `epoch=124-step=35500.ckpt` | `epoch=124-step=35625.ckpt` |
+
+Both: seed 42, 13 input channels (alpha read), LR 5e-4, 125 epochs, bf16-mixed, `TEXGEN_ENABLE_FLASH=0`;
+both pickle the pre-refactor class names (§ Dynamic Class Loading). Checkpoints are on jupiter,
+`/cs/3dlg-jupiter-project/lightgen/TEXGen/outputs/<name>/`, not in local `outputs/`; records and
+scores in `../docs/status/checkpoints.md`.
 
 ## Commands
 
@@ -33,8 +48,10 @@ All commands run from `TEXGen/` directory.
 # usage and probe run in its header
 bash scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 
-# Any config, with W&B logging
-python launch.py --config <config.yaml> --gpu 0 --train --wandb
+# The same recipe on any 4-GPU machine (README.md: setup, data); LIGHTGENBENCH_DATA is
+# scripts/lightgenbench/prepare_lightgenbench.sh's output dir
+LIGHTGENBENCH_DATA=<data_dir> TEXGEN_ENABLE_FLASH=0 python launch.py \
+    --config configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml --gpu 0,1,2,3 --train   # + --wandb
 
 ```
 
@@ -226,7 +243,7 @@ All variants share:
 - **L1 loss** (`lambda_l1: 0.5`) on velocity, masked to valid UV pixels
 
 Variant-specific:
-- **GT Mask Cond**: No extra loss — the GT emission mask is concatenated as an input channel (`in_channels: 13`)
+- **GT Mask Cond**: No extra loss — the GT emission mask is concatenated as an input channel (`in_channels: 14` with alpha)
 - **Mask Cls Loss**: BCE on predicted vs GT emission mask (`lambda_pred_mask_cls: 1.0`, `mask_cls_threshold: 0.01`)
 - **Dark region loss** (`lambda_dark_region`): available but set to 0.0 in all current configs
 
@@ -249,13 +266,16 @@ rough          [H, W, 1]  uint8   — roughness (decoded to [0, 1])
 emission_color [H, W, 3]  uint8   — GT emission (decoded to [0, 1], normalized to [-1, 1])
 alpha          [H, W, 1]  uint8   — glTF opacity (decoded to [0, 1]); always read
 ```
+The encoding is a contract with the bake (the parent's somage / uv_voxel pipeline): change the loader's
+decoding only together with it.
 
 ### Input Channels
 Backbone input tensor (concatenated in channel dim):
 ```
-noisy_emission(3) + position(3) + albedo(3) + metallic(1) + roughness(1) + baked_weights/mask(1) = 12
+noisy_emission(3) + position(3) + albedo(3) + metallic(1) + roughness(1) + alpha(1) + mask(1) = 13
 ```
-GT Mask Cond variant adds: `+ gt_emission_mask(1) = 13`
+GT Mask Cond variant (`backbone.use_gt_emission_mask_cond: true`) adds `gt_emission_mask(1)` = 14. The
+12-channel models from before alpha (the 1k variants) do not run on this code: alpha is always read.
 
 ### Datasets
 
@@ -293,11 +313,16 @@ The 74k subset was migrated from `/cs/3dlg-falas/` symlinks to standalone tar ar
 - 2026-04-28 follow-up: built `thumbnails_emissive.tar` (12 GB) from `processed_data/emissive_thumbnails/` directly to jupiter NFS (~3 min) and rsync'd to fir (~4 min). Discovered after observing 4,637 "Thumbnail not found, using albedo UV map as fallback" warnings in the first successful 74k training run — model had been getting wrong CLIP conditioning (albedo UV map instead of rendered preview) for the entire 8-epoch debug run.
 - Total wall time end-to-end: ~13h 10m for NPZ+GLB; +~7 min for thumbnails. 1.3 TB total on each side.
 
-### Distributed sampler caveat under DDP
+### Distributed sampler under DDP: val/test are sharded
 
-PyTorch Lightning auto-injects `DistributedSampler` for every dataloader under DDP, including val/test. With 4 ranks, each rank only sees 1/4 of the val/test set, and only rank 0 logs to wandb — so the qualitative panel shows only 1/4 of the visualizations vs the 1k baseline (28 of 112 val samples observed in first 74k run vs 109 in `htiandl5`).
-
-**Fix in the loader** (commit 056a5ad, 2026-04-28, in `lightgen_uv.py`; now `spuv/data/mesh_uv.py`): `val_dataloader()`, `test_dataloader()`, and `predict_dataloader()` pass an explicit `SequentialSampler`. Lightning respects an explicit sampler and skips its auto-shard. Every rank now evaluates the full val/test set in parallel (same wall-time as 1-rank since they're independent on each GPU; 4× redundant compute on val, but val is < 1% of total job time). Train still uses Lightning's auto `DistributedSampler` (we want sharded training).
+Under DDP, Lightning 2.5 gives every dataloader a `DistributedSampler` unless its sampler already is one
+(`_requires_distributed_sampler`, `pytorch_lightning/trainer/connectors/data_connector.py`). So the
+explicit `SequentialSampler` that `val_dataloader()`, `test_dataloader()` and `predict_dataloader()`
+pass (commit 056a5ad, meant to give every rank the full set; nothing sets `use_distributed_sampler`) is
+replaced: with 4 ranks each rank validates a quarter of the split (padded to equal length), only rank 0
+logs, so wandb shows a quarter of the panels (28 of 112 in the first 74k run), and `val/*` is logged
+without `sync_dist`, so it is rank 0's quarter too. On one GPU the sampler stays sequential. The paper
+and release scores come from `inference_specific_samples.py` over the full test split, not from this.
 
 ## Config System
 
@@ -308,11 +333,11 @@ auto_resume: true             # resume from latest checkpoint
 custom_output_dir             # override output location (used in overfit configs)
 
 data_cls / system_cls         # dynamic class paths
-data.batch_size               # 32 (full) or 1 (overfit)
+data.batch_size               # per-GPU micro-batch: 16 in the release config (x accumulate 2 x 4 GPUs)
 data.uv_height / uv_width    # 256 for all current configs
 data.train_indices            # JSON file path or tuple range
 
-system.backbone.in_channels   # 12 (vanilla/mask_cls) or 13 (gt_mask_cond)
+system.backbone.in_channels   # 13 (alpha read); 14 with use_gt_emission_mask_cond
 system.loss.diffusion_loss_dict.lambda_pred_mask_cls  # mask cls variant only
 system.loss.diffusion_loss_dict.mask_cls_threshold    # mask cls variant only
 system.condition_drop_rate    # 0.1 (full training) or 0.0 (overfit)
@@ -320,10 +345,10 @@ system.use_ema                # true (full training) or false (overfit)
 system.test_num_steps         # 50 (inference denoising steps)
 system.test_cfg_scale         # 2.0 (classifier-free guidance scale)
 
-trainer.max_epochs            # 5000 (full) or 10000 (overfit)
+trainer.max_epochs            # 125 in the release config
 trainer.precision             # bf16-mixed
 
-checkpoint.dirpath            # external checkpoint storage (full training on /scratch/)
+checkpoint.dirpath            # unset in the release config (<trial_dir>/ckpts); the fir launcher passes /scratch
 checkpoint.monitor            # val/psnr
 ```
 
@@ -375,10 +400,13 @@ on this run `val/psnr` peaks at **epoch 5 (19.10 dB)** and sinks to 17.40 by epo
 Reproduce with `evaluation/newdata_eval/build_ckpt_uv_comparison.py`, which also renders
 the UV maps side by side. **Two traps it exists to avoid:**
 
-1. `val/psnr` pools squared error over *every pixel* of *every shape* (the zeroed region
+1. The script pools squared error over *every pixel* of *every shape* (the zeroed region
    outside occupancy counts in the denominator) and takes **one** `-10log10` of that pooled
-   MSE. Computing per-shape PSNRs and averaging them in dB space instead gives ~25 dB where
-   training logs ~18 dB on the same predictions, and can rank checkpoints differently.
+   MSE. Training's `val/psnr` (`texgen_test.py`, `validation_step`) pools within each validation
+   batch, takes `-10log10` per batch, and Lightning averages the batch values over the epoch (on
+   rank 0's quarter under DDP, § Distributed sampler), so the table's column approximates the
+   logged value. Per-shape PSNRs averaged in dB space give ~25 dB where training logs ~18 dB on
+   the same predictions, and can rank checkpoints differently.
 2. A small sample will not reproduce the effect. A 14-shape random draw ranked the two
    checkpoints backwards, because one very bright shape dominates the pooled MSE.
 
@@ -401,15 +429,17 @@ the UV maps side by side. **Two traps it exists to avoid:**
 
 ## Output Structure
 ```
-outputs/{name}/{tag}@{timestamp}/
-├── ckpts/      # checkpoints (last.ckpt + top-k by val/psnr)
+outputs/{name}/{tag}[@{timestamp}]/   # one GPU adds the timestamp; several do not, so a rerun resumes
+├── ckpts/      # checkpoints (last.ckpt + every scheduled save: save_top_k -1)
 ├── tb_logs/    # TensorBoard
 ├── save/       # visualization images
 ├── configs/    # config snapshot
 └── cmd.txt     # command used
 ```
 
-Full training checkpoints go to `/scratch/dya78/lightgen/TEXGen/output_emission_filtered*/` (1k baseline) or `/home/dya78/scratch/lightgen/TEXGen/output_emissive_74k_vanilla/` (74k scaled).
+Published checkpoints are on jupiter (§ Runs behind the results). Older runs wrote to fir:
+`/scratch/dya78/lightgen/TEXGen/output_emission_filtered*/` (1k) and
+`/home/dya78/scratch/lightgen/TEXGen/output_emissive_74k_vanilla/` (74k).
 
 ## Key Implementation Details
 

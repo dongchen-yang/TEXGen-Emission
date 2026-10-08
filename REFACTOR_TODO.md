@@ -22,7 +22,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 13. `launch.py`
 - [x] 14. Environment files
 - [x] 15. Release layer: generic entry points for LightgenBench users
-- [ ] 16. Docs
+- [x] 16. Docs
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
 
@@ -386,21 +386,34 @@ OK, 8 npz and 8 thumbnails byte-identical to the check root. The config resolves
 
 One doc of record, keeping upstream's attribution and citation (`README.md:103`).
 
-- [ ] Inside: `README.md` (upstream's; its command uses the missing `configs/texgen_test.yaml`;
+- [x] Inside: `README.md` (upstream's; its command uses the missing `configs/texgen_test.yaml`;
   `static/teaser.jpg` goes with it), `CLAUDE.md` (no alpha channel, paper or release run; the
   `requirements_125.txt` claim at `:15` and the DDP sampler claim at `:186-190` are wrong),
   `LIGHTGEN_WORKFLOW.md`, the "4 Pro 6000" comment in the release config (`:89`).
-- [ ] The release commands in the README: single-node training (`python launch.py --config ...
+- [x] The release commands in the README: single-node training (`python launch.py --config ...
   --gpu 0,1,2,3 --train data.data_root=...`) and inference (`inference_specific_samples.py`) on the
   release test split.
-- [ ] Keep or retire `../evaluation/pointsampled/texgen_infer.py`. Keeping it needs more than its
+- [x] Keep or retire `../evaluation/pointsampled/texgen_infer.py`. Keeping it needs more than its
   imports (`lightgen_uv`, `lightgen_system`): its config and checkpoint need
   `scripts/convert_config.py`, and its checkpoint is 12-channel (no alpha), which the current code
   (alpha always read) cannot run.
 
 **Instructions:**
+- Decided: `README.md` is the doc of record for users (what differs from TEXGen, setup, data, training,
+  inference on the test split, upstream's attribution and BibTeX); the teaser image goes with
+  upstream's demo. `LIGHTGEN_WORKFLOW.md` is deleted: its lines are in the README or CLAUDE.md.
+- Found while checking CLAUDE.md: the loader's explicit `SequentialSampler` does not stop Lightning
+  2.5 from sharding val/test under DDP (`_requires_distributed_sampler` replaces any sampler that is
+  not a `DistributedSampler`), and `val/psnr` (per-batch, no `sync_dist`) is rank 0's quarter. Docs
+  fixed; the code stays (it only shapes the logged `val/*` and panels; the scores come from
+  separate inference over the full split).
+- Decided: retire `../evaluation/pointsampled/texgen_infer.py` at the merge (nothing references it;
+  hardcoded paths, the old 12-channel 1k checkpoint and the deleted classes). The parent's driver is
+  `../evaluation/newdata_eval/run_texgen_infer.py`; its call still matches `inference_samples`.
 
-**Result:**
+**Result:** README rewritten (every command checked against the code and config; the data commands are
+the ones step 15 tested), CLAUDE.md fixed (alpha channel, runs behind the results, DDP sampler,
+`val/psnr` formula, config keys, output layout), workflow map and teaser deleted. Docs only.
 
 ### 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 
@@ -429,8 +442,13 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
   `../evaluation/pointsampled/texgen_infer.py:23` breaks; parent scripts that run the current code
   on a published run's `parsed.yaml` (`infer_texgen_v2_venus05.sbatch`, `texgen_worker.sbatch`,
   `sweeps/job_texgen.sh`, the smoke command `sweeps/stage_texgen_host.sh` prints) need
-  `scripts/convert_config.py` first, as `gate-det.sh` does; converting once in
-  `run_texgen_infer.py` covers them all.
+  `scripts/convert_config.py` first, as `gate-det.sh` does (the config and, since 8c, the checkpoint:
+  `--ckpt`); converting once in `run_texgen_infer.py` covers them all.
+- [ ] From step 16: delete `../evaluation/pointsampled/texgen_infer.py`; `../.claude/rules/texgen.md`
+  also names `requirements_125.txt` (`:12`), `LIGHTGEN_WORKFLOW.md` (`:15`), `memory_tracker.py`
+  (`:90`), the SequentialSampler fix as working, 12/13 input channels and per-GPU batch 32;
+  `../AGENTS.md:228` and `../docs/baselines/texgen.md:5,11` link `LIGHTGEN_WORKFLOW.md` (now gone:
+  point at `TEXGen/README.md`).
 - [ ] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too?
 
 **Instructions:**
