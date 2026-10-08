@@ -3,12 +3,20 @@
 Inference script for specific sample IDs using a trained checkpoint.
 Generates input, ground truth, and predicted emission maps.
 
+    python inference_specific_samples.py --ckpt <run>/ckpts/<file>.ckpt --data_root <root> \
+        --parquet <root>/<index>.parquet --shas_file <shapes.txt> --out_dir <out> [--seed 0]
+
+The run's config is read beside the checkpoint (<run>/configs/parsed.yaml; a published run's config
+and checkpoint go through scripts/convert_config.py first). Writes <out>/<sha>/{pred_emission,
+gt_emission,mask,input_albedo}.png.
+
 This script matches the validation process from training:
 - Uses EMA weights if enabled in config
 - Disables autocast during inference
 - Respects data_normalization setting from config
 """
 
+import argparse
 import hashlib
 import os
 import sys
@@ -47,9 +55,10 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
                       parquet_file=None, seed=0):
     """Run inference on specific samples and save results.
 
-    data_root/parquet_file override the hardcoded full-dataset paths (used by the newdata_eval
-    harness to point at a staged native-somage root that also carries thumbnails/).
+    data_root (somage.npz per shape and thumbnails/) and parquet_file (its index) are required.
     """
+    if not data_root or not parquet_file:
+        raise ValueError("inference_samples needs data_root and parquet_file")
     
     print("=" * 80)
     print("LightGen Inference for Specific Samples")
@@ -67,22 +76,20 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
         # Try going up one more level for nested structure
         config_path = ckpt_path_obj.parent.parent.parent / "configs" / "parsed.yaml"
     
-    if config_path.exists():
-        print(f"   Loading config from: {config_path}")
-        full_cfg = OmegaConf.load(config_path)
-        # Extract only the keys needed for the model (avoid metadata keys)
-        cfg = OmegaConf.create({
-            'data_cls': full_cfg.get('data_cls'),
-            'data': full_cfg.get('data'),
-            'system_cls': full_cfg.get('system_cls'),
-            'system': full_cfg.get('system'),
-            'trainer': full_cfg.get('trainer', {}),
-            'checkpoint': full_cfg.get('checkpoint', {}),
-        })
-    else:
-        print(f"   Warning: Config not found at {config_path}, using default")
-        cfg = OmegaConf.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs/lightgen_pointuv_256_batch32_pretrained.yaml"))
-    
+    if not config_path.exists():
+        raise FileNotFoundError(f"no configs/parsed.yaml beside {checkpoint_path}")
+    print(f"   Loading config from: {config_path}")
+    full_cfg = OmegaConf.load(config_path)
+    # Extract only the keys needed for the model (avoid metadata keys)
+    cfg = OmegaConf.create({
+        'data_cls': full_cfg.get('data_cls'),
+        'data': full_cfg.get('data'),
+        'system_cls': full_cfg.get('system_cls'),
+        'system': full_cfg.get('system'),
+        'trainer': full_cfg.get('trainer', {}),
+        'checkpoint': full_cfg.get('checkpoint', {}),
+    })
+
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     print(f"   ✓ Checkpoint loaded (epoch {checkpoint.get('epoch', 'unknown')})")
     
@@ -90,11 +97,10 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     print("\n2. Setting up data module...")
     from spuv.data.mesh_uv import ObjaverseDataModule
     
-    # Override to use full dataset (not filtered) to find all samples
+    # The given data, without the run's split filters, so that any listed shape can be found
     cfg_data = cfg.data.copy()
-    # Use full dataset paths
-    cfg_data.parquet_file = parquet_file or "/localhome/dya78/code/lightgen/data/baked_uv/df_SomgProc_final.parquet"
-    cfg_data.data_root = data_root or "/localhome/dya78/code/lightgen/data/baked_uv"
+    cfg_data.parquet_file = parquet_file
+    cfg_data.data_root = data_root
     print(f"   Using dataset: {cfg_data.parquet_file}")
     print(f"   data_root: {cfg_data.data_root} (thumbnails from {cfg_data.data_root}/thumbnails/)")
     
@@ -156,8 +162,6 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     
     # Run inference for each sample
     print("\n7. Running inference...")
-    
-    all_results = []  # Store results for overall visualization
     
     for sample_id, idx in sample_indices.items():
         print(f"\n   Processing: {sample_id} (index {idx})")
@@ -239,59 +243,17 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
             gt_img = gt_emission.cpu().permute(1, 2, 0).numpy()
             albedo_img = albedo_map.cpu().permute(1, 2, 0).numpy()
             mask_img = mask_map.cpu().numpy()
-            
-            # Get thumbnail - load directly from baked_uv_local since data_root is different
-            thumbnail_img = None
-            thumbnail_path = f"/localhome/dya78/code/lightgen/data/baked_uv_local/thumbnails/{sample_id}.png"
-            if os.path.exists(thumbnail_path):
-                thumb_pil = Image.open(thumbnail_path).convert('RGB')
-                thumbnail_img = np.array(thumb_pil).astype(np.float32) / 255.0  # [H, W, 3]
-            elif 'thumbnail' in batch and batch['thumbnail'] is not None:
-                # Fallback to batch thumbnail if available
-                thumbnail = batch['thumbnail']  # [1, 1, H, W, 3]
-                if thumbnail.dim() == 5:
-                    thumbnail_img = thumbnail[0, 0].cpu().numpy()  # [H, W, 3]
-                else:
-                    thumbnail_img = thumbnail[0].cpu().numpy()
-            
+
             # Save individual images
             sample_dir = output_dir / sample_id
             sample_dir.mkdir(exist_ok=True)
-            
+
             Image.fromarray((albedo_img * 255).astype(np.uint8)).save(sample_dir / "input_albedo.png")
             Image.fromarray((gt_img * 255).astype(np.uint8)).save(sample_dir / "gt_emission.png")
             Image.fromarray((pred_img * 255).astype(np.uint8)).save(sample_dir / "pred_emission.png")
             Image.fromarray((mask_img * 255).astype(np.uint8)).save(sample_dir / "mask.png")
-            
-            if thumbnail_img is not None:
-                Image.fromarray((thumbnail_img * 255).astype(np.uint8)).save(sample_dir / "thumbnail.png")
-            
-            # Store for overall visualization
-            all_results.append({
-                'sample_id': sample_id,
-                'thumbnail': thumbnail_img,
-                'albedo': albedo_img,
-                'gt_emission': gt_img,
-                'pred_emission': pred_img,
-            })
-            
-            # Create comparison image (3 columns: input, gt, pred)
-            h, w = pred_img.shape[:2]
-            comparison = np.zeros((h, w * 3, 3), dtype=np.uint8)
-            comparison[:, :w] = (albedo_img * 255).astype(np.uint8)
-            comparison[:, w:2*w] = (gt_img * 255).astype(np.uint8)
-            comparison[:, 2*w:] = (pred_img * 255).astype(np.uint8)
-            
-            Image.fromarray(comparison).save(sample_dir / "comparison.png")
-            
-            print(f"      ✓ Saved to {sample_dir}/")
-            print(f"         - input_albedo.png")
-            print(f"         - gt_emission.png")
-            print(f"         - pred_emission.png")
-            if thumbnail_img is not None:
-                print(f"         - thumbnail.png")
-            print(f"         - comparison.png (input | gt | pred)")
-            
+            print(f"      ✓ Saved input_albedo, gt_emission, pred_emission, mask to {sample_dir}/")
+
             # Compute metrics
             from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
             from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -315,11 +277,6 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
             print(f"         PSNR: {psnr.item():.2f} dB")
             print(f"         SSIM: {ssim.item():.4f}")
     
-    # Create overall visualization grid
-    if all_results:
-        print("\n8. Creating overall visualization...")
-        create_overall_visualization(all_results, output_dir)
-
     print("\n" + "=" * 80)
     print("✓ Inference Complete!")
     print(f"Results saved to: {output_dir}")
@@ -327,121 +284,18 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     print("=" * 80)
 
 
-def create_overall_visualization(all_results, output_dir):
-    """Create a grid visualization with all samples.
-    
-    Layout: Each row is one sample
-    Columns: Thumbnail | Albedo | GT Emission | Pred Emission
-    """
-    import cv2
-    
-    n_samples = len(all_results)
-    
-    # Get dimensions from first sample
-    h, w = all_results[0]['albedo'].shape[:2]
-    
-    # Spacing between columns and rows
-    col_spacing = 10
-    row_spacing = 10
-    
-    # Get thumbnail dimensions (keep original aspect ratio, scale to match row height)
-    thumb_h = h
-    if all_results[0]['thumbnail'] is not None:
-        orig_thumb = all_results[0]['thumbnail']
-        orig_h, orig_w = orig_thumb.shape[:2]
-        aspect_ratio = orig_w / orig_h
-        thumb_w = int(thumb_h * aspect_ratio)
-    else:
-        thumb_w = h  # Square fallback
-    
-    # Column widths: thumbnail (original aspect) + 3 UV maps
-    col_widths = [thumb_w, w, w, w]
-    total_width = sum(col_widths) + col_spacing * 3  # 3 gaps between 4 columns
-    total_height = n_samples * h + row_spacing * (n_samples - 1)  # gaps between rows
-    
-    # Add header row
-    header_height = 40
-    total_height += header_height
-    
-    # Create white canvas
-    canvas = np.ones((total_height, total_width, 3), dtype=np.uint8) * 255
-    
-    # Add header labels
-    from PIL import ImageDraw, ImageFont
-    canvas_pil = Image.fromarray(canvas)
-    draw = ImageDraw.Draw(canvas_pil)
-    
-    # Try to use a font, fallback to default if not available
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
-    except:
-        font = ImageFont.load_default()
-    
-    headers = ["Thumbnail", "Albedo (Input)", "GT Emission", "Pred Emission"]
-    x_positions = [
-        0,
-        col_widths[0] + col_spacing,
-        col_widths[0] + col_spacing + col_widths[1] + col_spacing,
-        col_widths[0] + col_spacing + col_widths[1] + col_spacing + col_widths[2] + col_spacing
-    ]
-    
-    for header, x_pos, col_w in zip(headers, x_positions, col_widths):
-        # Center text in column
-        text_bbox = draw.textbbox((0, 0), header, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_x = x_pos + (col_w - text_width) // 2
-        draw.text((text_x, 10), header, fill=(0, 0, 0), font=font)
-    
-    canvas = np.array(canvas_pil)
-    
-    # Fill in each row
-    for i, result in enumerate(all_results):
-        row_start = header_height + i * (h + row_spacing)
-        
-        # Column 0: Thumbnail (keep aspect ratio, scale height to h)
-        if result['thumbnail'] is not None:
-            thumb = result['thumbnail']
-            orig_h, orig_w = thumb.shape[:2]
-            aspect_ratio = orig_w / orig_h
-            new_w = int(h * aspect_ratio)
-            thumb_resized = cv2.resize(thumb, (new_w, h), interpolation=cv2.INTER_LINEAR)
-            canvas[row_start:row_start + h, 0:new_w] = (thumb_resized * 255).astype(np.uint8)
-        
-        # Column 1: Albedo
-        col_start = col_widths[0] + col_spacing
-        canvas[row_start:row_start + h, col_start:col_start + w] = (result['albedo'] * 255).astype(np.uint8)
-        
-        # Column 2: GT Emission
-        col_start = col_widths[0] + col_spacing + col_widths[1] + col_spacing
-        canvas[row_start:row_start + h, col_start:col_start + w] = (result['gt_emission'] * 255).astype(np.uint8)
-        
-        # Column 3: Pred Emission
-        col_start = col_widths[0] + col_spacing + col_widths[1] + col_spacing + col_widths[2] + col_spacing
-        canvas[row_start:row_start + h, col_start:col_start + w] = (result['pred_emission'] * 255).astype(np.uint8)
-    
-    # Save overall visualization
-    output_path = output_dir / "overall_visualization.png"
-    Image.fromarray(canvas).save(output_path)
-    print(f"   ✓ Saved overall visualization to: {output_path}")
+def main():
+    ap = argparse.ArgumentParser(description="Inference with a trained checkpoint on listed shapes.")
+    ap.add_argument("--ckpt", required=True, help="<run>/ckpts/<file>.ckpt; the config is <run>/configs/parsed.yaml")
+    ap.add_argument("--data_root", required=True, help="the shapes' <ditem_dir>/somage.npz and thumbnails/<sha>.png")
+    ap.add_argument("--parquet", required=True, help="the data root's index (rows with success == True)")
+    ap.add_argument("--shas_file", required=True, help="one shape id per line")
+    ap.add_argument("--out_dir", required=True)
+    ap.add_argument("--seed", type=int, default=0, help="per-shape seeds derive from (sha, seed)")
+    a = ap.parse_args()
+    shas = [l.strip() for l in open(a.shas_file) if l.strip()]
+    inference_samples(a.ckpt, shas, a.out_dir, data_root=a.data_root, parquet_file=a.parquet, seed=a.seed)
 
 
 if __name__ == "__main__":
-    checkpoint_path = "/localhome/dya78/code/lightgen/TEXGen/ckpts/epoch=599-step=17400.ckpt"
-    
-    # Test set samples
-    sample_ids = [
-        "008ac92377d547c391a83f96e485c313",
-        "0d66475a413b4c6288178ad94251677f",
-        "0ee07f5656fc41bf9f36bc19e6605017",
-        "20a021a4f4eb4bc6a920d018ef2d02a2",
-        "4532362cb3764e0e90547d886a37f52a",
-        "6cfba09348b64230b274026e175710ed",
-        "9c7467268bf34ada8e57429736dfba19",
-        "fff48e914c4847a08660b9e08b1b733c",
-        "21170b1a94664f2fae7c00c4e2c25577",
-        "f42e52eb50c041cfb4e29310e4a95e33",
-    ]
-    
-    output_dir = "inference_outputs_epoch599"
-    
-    inference_samples(checkpoint_path, sample_ids, output_dir)
+    main()

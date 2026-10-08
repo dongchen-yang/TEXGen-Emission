@@ -16,7 +16,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 7b. Release checks on Hugging Face data, and a fan-out driver
 - [x] 8. Fold our modules into upstream's originals
 - [x] 9. Coverage run (no code change)
-- [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
+- [x] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [x] 11. Render-only data in our own code (done in 8a)
 - [ ] 12. The memory tracker
 - [ ] 13. `launch.py`
@@ -286,18 +286,20 @@ logging (`texgen_train.py:89-152`, `launch.py:264-445`), loss branches off in th
 
 Keep the `inference_samples(...)` signature and `sample_seed`.
 
-- [ ] `:84` falls back to the missing `configs/lightgen_pointuv_256_batch32_pretrained.yaml`.
-- [ ] `:96-97` default data root and parquet under `/localhome/dya78/code/lightgen/data/baked_uv`
+- [x] `:84` falls back to the missing `configs/lightgen_pointuv_256_batch32_pretrained.yaml`.
+- [x] `:96-97` default data root and parquet under `/localhome/dya78/code/lightgen/data/baked_uv`
   (bypassed when the driver passes both).
-- [ ] `:245` thumbnail dir under `/localhome/.../baked_uv_local/thumbnails`: output-only, and the dir
+- [x] `:245` thumbnail dir under `/localhome/.../baked_uv_local/thumbnails`: output-only, and the dir
   does not exist (it falls back to the batch thumbnail).
-- [ ] `create_overall_visualization` (`:318-321`, `:388-484`; a 24 MB `overall_visualization.png` per
+- [x] `create_overall_visualization` (`:318-321`, `:388-484`; a 24 MB `overall_visualization.png` per
   run), the per-shape `comparison.png` and `thumbnail.png` (no reader found).
-- [ ] `:487` checkpoint in the `__main__` block.
+- [x] `:487` checkpoint in the `__main__` block.
 
 **Instructions:**
 
-**Result:**
+**Result:** No fallback config; `data_root`/`parquet_file` required; the batch thumbnail only;
+`comparison.png`, `thumbnail.png`, `overall_visualization.png` dropped (four files per shape); a generic
+CLI replaces the hardcoded `__main__`. Paper subset20 and release gate IDENTICAL.
 
 ### 11. Render-only data in our own code
 

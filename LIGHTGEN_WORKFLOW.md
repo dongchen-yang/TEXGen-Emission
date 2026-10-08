@@ -24,7 +24,7 @@ bash scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 
 ```bash
 conda run -n texgen bash -c 'python launch.py --config <config.yaml> --gpu 0 --test system.resume=/path/to/checkpoint.ckpt'
-conda run -n texgen bash -c 'python inference_specific_samples.py'
+conda run -n texgen bash -c 'python inference_specific_samples.py --ckpt <run>/ckpts/<file>.ckpt --data_root <root> --parquet <root>/<index>.parquet --shas_file <shapes.txt> --out_dir <out>'
 ```
 
 ## Check a code change

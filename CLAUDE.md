@@ -36,7 +36,8 @@ python launch.py --config <config.yaml> --gpu 0 --train --wandb
 ```bash
 python launch.py --config <config.yaml> --gpu 0 --test system.resume=/path/to/checkpoint.ckpt
 python launch.py --config <config.yaml> --gpu 0 --validate system.resume=/path/to/checkpoint.ckpt
-python inference_specific_samples.py
+python inference_specific_samples.py --ckpt <run>/ckpts/<file>.ckpt --data_root <root> \
+    --parquet <root>/<index>.parquet --shas_file <shapes.txt> --out_dir <out> [--seed 0]
 # A published checkpoint's own config (older names) first goes through the converter
 python scripts/convert_config.py <run>/configs/parsed.yaml <copy>/configs/parsed.yaml
 ```
