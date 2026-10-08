@@ -68,7 +68,12 @@ if [ -f "$REPO/scripts/convert_config.py" ]; then
   RUN=$SLURM_TMPDIR/run; mkdir -p "$RUN/ckpts" "$RUN/configs"
   python "$REPO/scripts/convert_config.py" "$(dirname "$(dirname "$CKPT")")/configs/parsed.yaml" "$RUN/configs/parsed.yaml" \
     || { echo "FATAL convert_config"; exit 2; }
-  ln -s "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")"
+  if grep -q -- "--ckpt" "$REPO/scripts/convert_config.py"; then   # the checkpoint's pickled class paths too
+    python "$REPO/scripts/convert_config.py" --ckpt "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")" \
+      || { echo "FATAL convert_config --ckpt"; exit 2; }
+  else
+    ln -s "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")"
+  fi
   CKPT=$RUN/ckpts/$(basename "$CKPT")
 fi
 

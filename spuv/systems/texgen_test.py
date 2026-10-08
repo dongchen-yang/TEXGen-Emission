@@ -34,30 +34,17 @@ class TEXGenDiffusion(TEXGenBaseSystem):
 
     def prepare_diffusion_data(self, batch, noisy_images=None):
         device = get_device()
-        # Extract integer values from batch dimensions
-        uv_channel = int(batch["uv_channel"][0]) if isinstance(batch["uv_channel"], (list, tuple)) else int(batch["uv_channel"])
-        uv_height = int(batch["uv_height"][0]) if isinstance(batch["uv_height"], (list, tuple)) else int(batch["uv_height"])
-        uv_width = int(batch["uv_width"][0]) if isinstance(batch["uv_width"], (list, tuple)) else int(batch["uv_width"])
-        batch_size = len(batch["mesh"])
-        uv_shape = (batch_size, uv_channel, uv_height, uv_width)
-        if self.training or "uv_map" in batch:
-            sample_images = rearrange(batch["uv_map"], "B H W C -> B C H W").to(dtype=self.dtype)
-            if self.cfg.data_normalization:
-                sample_images = (sample_images * 2 - 1)
+        # The data is in UV space already: the target is the emission map in [-1, 1] (or, with
+        # out_channels 1, the binary emission mask), and mask and position come from the batch
+        batch_size = batch["gt_emission"].shape[0]
+        if self.cfg.backbone.out_channels == 1:
+            gt_emission_01 = (batch["gt_emission"] + 1.0) / 2.0
+            emissive_threshold = self.cfg.loss.diffusion_loss_dict.get('emissive_threshold', 0.001)
+            sample_images = (gt_emission_01.max(dim=1, keepdim=True)[0] > emissive_threshold).float() * 2.0 - 1.0
         else:
-            sample_images = None
-
-        if "mask_map" not in batch or "position_map" not in batch:
-            position_map_, mask_map_ = rasterize_batched_geometry_maps(
-                self.ctx, batch["mesh"],
-                uv_height,
-                uv_width
-            )
-            mask_map = rearrange(mask_map_, "B H W C-> B C H W").to(dtype=self.dtype)
-            position_map = rearrange(position_map_, "B H W C -> B C H W").to(dtype=self.dtype)
-        else:
-            mask_map = rearrange(batch["mask_map"], "B H W -> B 1 H W").to(dtype=self.dtype)
-            position_map = rearrange(batch["position_map"], "B H W C -> B C H W").to(dtype=self.dtype)
+            sample_images = batch["gt_emission"]
+        mask_map = batch["mask_map"]
+        position_map = batch["position_map"]
 
         # timesteps = torch.rand(batch_size, device=device)
         # Sample uniformly
@@ -69,7 +56,7 @@ class TEXGenDiffusion(TEXGenBaseSystem):
         if noisy_images is not None:
             noisy_images = noisy_images.to(dtype=self.dtype)
         else:
-            noise = torch.randn(uv_shape, device=device, dtype=self.dtype)
+            noise = torch.randn_like(sample_images, dtype=self.dtype)
             if sample_images is not None:
                 noisy_images = self.get_conditional_flow(
                         noise,
@@ -109,11 +96,13 @@ class TEXGenDiffusion(TEXGenBaseSystem):
         image_embeddings = condition["image_embeddings"]
         clip_embeddings = [text_embeddings, image_embeddings]
 
-        mesh = condition["mesh"]
-
+        # No mesh to bake a condition view from: the material maps go in pre-baked in UV space
         image_info = {
-            'mvp_mtx_cond': condition["mvp_mtx_cond"],
             'rgb_cond': condition["rgb_cond"],
+            'baked_texture': torch.cat([condition["albedo_map"], condition["metal_map"],
+                                        condition["rough_map"], condition["alpha_map"]], dim=1),
+            'baked_weights': mask_map,
+            'gt_emission_mask': condition["gt_emission_mask"],
         }
 
         if condition_drop is None and self.training:
@@ -126,9 +115,8 @@ class TEXGenDiffusion(TEXGenBaseSystem):
            input_tensor,
            mask_map,
            position_map,
-           timesteps*1000,
+           timesteps,   # t in [0, 1]: our models were trained without upstream's *1000
            clip_embeddings,
-           mesh,
            image_info,
            data_normalization=self.cfg.data_normalization,
            condition_drop=condition_drop,
@@ -137,46 +125,35 @@ class TEXGenDiffusion(TEXGenBaseSystem):
         return output, addition_info
 
     def prepare_condition_info(self, batch):
-        mesh = batch["mesh"]
-        mvp_mtx_cond = batch["mvp_mtx_cond"]
-        uv_map_gt = batch["uv_map"]
-        # Extract integer values from height/width tensors/lists
-        if torch.is_tensor(batch["height"]):
-            image_height = batch["height"].item()
-        elif isinstance(batch["height"], (list, tuple)):
-            image_height = int(batch["height"][0])
+        # No mesh to render the condition view from: rgb_cond packs the UV material maps (albedo,
+        # metallic, roughness: [B, 1, H, W, 5]), and the CLIP image is the object's thumbnail
+        rgb_cond = torch.cat([batch["albedo_map"], batch["metal_map"], batch["rough_map"]], dim=1)
+        rgb_cond = rgb_cond.permute(0, 2, 3, 1).unsqueeze(1)
+
+        prompt = ["emission generation"] * rgb_cond.shape[0]   # the data has no text prompts
+
+        if not hasattr(self, "_cached_text_embedding"):   # one fixed prompt: encoded once
+            self._cached_text_embedding = self.image_tokenizer.process_text(["emission generation"]).to(dtype=self.dtype)
+        text_embeddings = self._cached_text_embedding.expand(rgb_cond.shape[0], -1)
+        if isinstance(batch.get("clip_image_embedding"), torch.Tensor):   # precomputed
+            image_embeddings = batch["clip_image_embedding"].to(dtype=self.dtype)
+        elif isinstance(batch.get("thumbnail"), torch.Tensor):
+            image_embeddings = self.image_tokenizer.process_image(batch["thumbnail"]).to(dtype=self.dtype)
         else:
-            image_height = int(batch["height"])
-        
-        if torch.is_tensor(batch["width"]):
-            image_width = batch["width"].item()
-        elif isinstance(batch["width"], (list, tuple)):
-            image_width = int(batch["width"][0])
-        else:
-            image_width = int(batch["width"])
-
-        # Online rendering the condition image
-        background_color = self.render_background_color
-        rgb_cond = render_batched_meshes(self.ctx, mesh, uv_map_gt, mvp_mtx_cond, image_height, image_width, background_color)
-
-        if self.cfg.cond_rgb_perturb and self.training:
-            B, Nv, H, W, C = rgb_cond.shape
-            rgb_cond = rearrange(rgb_cond, "B Nv H W C -> (B Nv) C H W")
-            rgb_cond = self.data_augmentation(rgb_cond, background_color)
-            rgb_cond = rearrange(rgb_cond, "(B Nv) C H W -> B Nv H W C", B=B, Nv=Nv)
-
-        prompt = batch["prompt"]
-        
-        text_embeddings = self.image_tokenizer.process_text(prompt).to(dtype=self.dtype)
-        image_embeddings = self.image_tokenizer.process_image(rgb_cond).to(dtype=self.dtype)
+            spuv.warn("Thumbnail not found in batch, using albedo UV map as fallback")
+            image_embeddings = self.image_tokenizer.process_image(
+                batch["albedo_map"].permute(0, 2, 3, 1).unsqueeze(1)).to(dtype=self.dtype)
 
         condition_info = {
-            "mesh": mesh,
-            "mvp_mtx_cond": mvp_mtx_cond,
             "rgb_cond": rgb_cond,
             "text_embeddings": text_embeddings,
             "image_embeddings": image_embeddings,
             "prompt": prompt,
+            "albedo_map": batch["albedo_map"],
+            "metal_map": batch["metal_map"],
+            "rough_map": batch["rough_map"],
+            "alpha_map": batch["alpha_map"],
+            "gt_emission_mask": batch["gt_emission_mask"],
         }
 
         return condition_info

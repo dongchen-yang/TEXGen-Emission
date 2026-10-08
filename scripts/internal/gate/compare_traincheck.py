@@ -27,12 +27,29 @@ Verdict (exit 0 for the first two):
   INCOMPLETE    a record has no training step or no checkpoint summary (an empty or cut-off run)
 """
 import argparse
+import importlib.util
 import itertools
 import json
 import math
+import os
 import sys
 
 TRAIN_KEYS = ("loss", "lr", "grad_norm", "param_sum")
+
+
+def class_renames():
+    """Pickled class paths scripts/convert_config.py moves (old -> new): a checkpoint that names the
+    new path has the same structure as one that names the old."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "convert_config.py")
+    if not os.path.isfile(path):
+        return {}
+    spec = importlib.util.spec_from_file_location("convert_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return getattr(mod, "CLASS_RENAMES", {})
+
+
+RENAMES = class_renames()
 
 
 def load(path):
@@ -46,7 +63,7 @@ def structure(r):
         "val": [(x["sanity"], x["gs"], x["epoch"], tuple(sorted(k for k in x if k.startswith("val/")))) for x in r["val"]],
         "test": [tuple(sorted(k for k in x if k not in ("kind", "gs"))) for x in r["test"]],
         "ckpt": [(x["keys"], x["epoch"], x["global_step"], x["scheduler"], x["lightning_scheduler"], x["n_state"],
-                  x["n_optimizer_states"], x["classes"]) for x in r["ckpt"]],
+                  x["n_optimizer_states"], sorted(RENAMES.get(c, c) for c in x["classes"])) for x in r["ckpt"]],
         "fit_start": [(x["global_step"], x["epoch"], x["n_backbone_params"]) for x in r["fit_start"]],
     }
 

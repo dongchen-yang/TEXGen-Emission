@@ -44,7 +44,8 @@ if [ -f "$ROOT/scripts/convert_config.py" ]; then
   RUN=$(mktemp -d); trap 'rm -rf "$RUN"' EXIT
   mkdir -p "$RUN/ckpts" "$RUN/configs"
   python "$ROOT/scripts/convert_config.py" "$(dirname "$(dirname "$CKPT")")/configs/parsed.yaml" "$RUN/configs/parsed.yaml"
-  ln -s "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")"
+  SRC=$(bash "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ckpt_for_tree.sh" "$ROOT" "$CKPT")   # converted, cached
+  ln -s "$SRC" "$RUN/ckpts/$(basename "$CKPT")"
   CKPT=$RUN/ckpts/$(basename "$CKPT")
   echo "[config] converted with $ROOT/scripts/convert_config.py: $CKPT"
 fi

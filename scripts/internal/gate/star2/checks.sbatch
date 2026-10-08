@@ -154,6 +154,7 @@ fi
 # SLURM_JOB_NAME=bash: Lightning then ignores the Slurm job (as scripts/internal/fir/infer_lightgenbench_fir.sh does)
 # and every task runs single-process exactly as on the workstation.
 export GATE_LOCK=none GATE_ACTIVATE=$ACT GATE_REPO=$TOOL/repo GATE_PAPER_ROOT=$PROOT TRAINCHECK_ROOT=$RROOT TRAINCHECK_TMPBASE=/localscratch/dya78/tmp SLURM_JOB_NAME=bash
+export GATE_CKPT_CACHE=$LS/ckpt_cache   # converted checkpoints (ckpt_for_tree.sh), beside the staged ones
 run_queue() {  # gpu: this GPU's tasks one after another; one "<name> exit=<rc> secs=<s> <last log line>" line each
   local gq=$1 t g name kind dest a1 a2 a3 a4 rc s
   for t in "${TASKS[@]}"; do

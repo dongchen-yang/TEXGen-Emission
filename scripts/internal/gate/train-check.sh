@@ -44,6 +44,11 @@ export TMPDIR
 # On every exit, the aborts below included: the temp dir goes, and so does the saved checkpoint
 # (12.4 GB) unless KEEP_CKPT=1; its summary is in the record by then.
 trap 'rm -rf "$TMPDIR"; [ "${KEEP_CKPT:-0}" = 1 ] || find "$OUT/ckpts" -name "*.ckpt" -delete 2>/dev/null || true' EXIT
+# A tree that converts checkpoints (scripts/convert_config.py --ckpt) resumes from a converted copy
+if [ "$MODE" = resume ]; then
+  CKPT=$(bash "$HERE/ckpt_for_tree.sh" "$ROOT" "$CKPT") || { echo "ABORT: checkpoint conversion failed"; exit 2; }
+  echo "[ckpt] resume from $CKPT"
+fi
 cd "$ROOT"
 case "$MODE" in
   fresh)  python launch.py --config "$HERE/traincheck/traincheck.yaml" --gpu 0 --train ;;

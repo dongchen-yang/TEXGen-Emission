@@ -1,273 +1,38 @@
 from dataclasses import dataclass, field
-import math
-import random
-from contextlib import contextmanager
-import colorsys
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange
-from torch.autograd import profiler
-from torchvision.transforms import v2 as transform
 
 import spuv
-from spuv.utils.misc import get_device
-from spuv.systems.texgen_test import TEXGenDiffusion
-from spuv.systems.texgen_base import LossConfig
-from spuv.utils.ops import binary_cross_entropy, get_plucker_rays
-from spuv.utils.typing import *
-from spuv.models.lpips import LPIPS
-from spuv.utils.misc import time_recorder as tr
-from spuv.utils.snr_utils import compute_snr_from_scheduler, get_weights_from_timesteps
-from spuv.models.perceptual_loss import VGGPerceptualLoss
-from spuv.models.renderers.rasterize import NVDiffRasterizerContext
-from spuv.utils.mesh_utils import uv_padding
-from spuv.utils.nvdiffrast_utils import *
-from spuv.utils.lit_ema import LitEma
-from spuv.utils.image_metrics import SSIM, PSNR
-from spuv.utils.memory_tracker import log_memory, set_baseline
+from spuv.systems.texgen_test import TEXGenDiffusion as TEXGenTestSystem
+from spuv.utils.memory_tracker import log_memory
 
 
-class LightGenSystem(TEXGenDiffusion):
+class TEXGenDiffusion(TEXGenTestSystem):
     """
-    LightGen System for generating emission maps from geometry and material properties.
-    Inherits from texgen_test.TEXGenDiffusion to match original TEXGen exactly (with Flow Matching).
-    
-    Input: geometry (position, normal), material (albedo, roughness, metallic)
+    Training for the emission model: the training step and the losses that upstream's release leaves
+    as stubs in texgen_base.py. Conditioning, the forward pass and inference are texgen_test.py's.
+
+    Input: geometry (position), material (albedo, metallic, roughness, alpha)
     Output: emission map in UV space
     """
     
     @dataclass
-    class Config(TEXGenDiffusion.Config):
+    class Config(TEXGenTestSystem.Config):
         image_tokenizer_cls: str = ""
         image_tokenizer: dict = field(default_factory=dict)
 
     cfg: Config
 
     def configure(self):
-        import time
-        t0 = time.time()
-        print(f"[stage] LightGenSystem.configure() — building backbone via super() ...", flush=True)
-        super().configure()
-        print(f"[stage] backbone built ({time.time()-t0:.1f}s)", flush=True)
-        # Initialize image tokenizer for conditioning (CLIP — may pull from HF cache).
-        t1 = time.time()
-        print(f"[stage] building image tokenizer ({self.cfg.image_tokenizer_cls}) ...", flush=True)
-        self.image_tokenizer = spuv.find(self.cfg.image_tokenizer_cls)(
-            self.cfg.image_tokenizer
-        )
-        print(f"[stage] image tokenizer ready ({time.time()-t1:.1f}s)", flush=True)
-        
+        super().configure()   # the backbone and the CLIP image tokenizer (texgen_test.py)
+
         # Initialize memory tracker for debugging OOM issues
         from spuv.utils.memory_tracker import init_tracker
         # Log memory every step for first few epochs, then every 5 steps
         self.memory_tracker = init_tracker(enabled=True, log_interval=1)
         spuv.info("[MEMORY] Memory tracking enabled for OOM debugging")
-        
-    def prepare_condition_info(self, batch):
-        """
-        Prepare conditioning information from batch.
-        For LightGen, we condition on material properties and geometry.
-        """
-        # Extract material and geometry info
-        albedo_map = batch['albedo_map']  # [B, 3, H, W]
-        metal_map = batch['metal_map']  # [B, 1, H, W]
-        rough_map = batch['rough_map']  # [B, 1, H, W]
-        alpha_map = batch.get('alpha_map', None)  # [B, 1, H, W] or None (no-alpha variants)
-        position_map = batch['position_map']  # [B, 3, H, W]
-        normal_map = batch['normal_map']  # [B, 3, H, W]
-        
-        # Pack all material properties into a single tensor for conditioning
-        # This gives us: normal(3) + albedo(3) + metal(1) + rough(1) = 8 channels
-        material_cond = torch.cat([normal_map, albedo_map, metal_map, rough_map], dim=1)  # [B, 8, H, W]
-        
-        # Convert to expected format: [B, V, H, W, C]
-        B, C, H, W = material_cond.shape
-        rgb_cond = material_cond.permute(0, 2, 3, 1).unsqueeze(1)  # [B, 1, H, W, 8]
-        
-        # Use fixed prompt for LightGen (dataset doesn't have text prompts)
-        # Using consistent prompt rather than scene_id hashes which carry no semantic meaning
-        prompt = ["emission generation"] * B
-        
-        # Generate text embeddings (cache since prompt is always "emission generation")
-        if not hasattr(self, '_cached_text_embedding'):
-            self._cached_text_embedding = self.image_tokenizer.process_text(["emission generation"]).to(dtype=self.dtype)  # [1, 768]
-        text_embeddings = self._cached_text_embedding.expand(B, -1)
 
-        # Use precomputed CLIP image embedding if available, otherwise encode online.
-        # NOTE: default collate turns per-sample None into [None] (a list), so guard on tensor-ness,
-        # not `is not None` — otherwise online-CLIP inference calls `.to()` on a list.
-        if isinstance(batch.get('clip_image_embedding'), torch.Tensor):
-            image_embeddings = batch['clip_image_embedding'].to(dtype=self.dtype)  # [B, 768]
-        elif isinstance(batch.get('thumbnail'), torch.Tensor):
-            rendered_thumbnail = batch['thumbnail']  # [B, 1, H, W, 3]
-            image_embeddings = self.image_tokenizer.process_image(rendered_thumbnail).to(dtype=self.dtype)
-        else:
-            # Fallback: use albedo UV map if thumbnail not available
-            spuv.warn("Thumbnail not found in batch, using albedo UV map as fallback")
-            albedo_for_clip = albedo_map.permute(0, 2, 3, 1).unsqueeze(1)  # [B, 1, H, W, 3]
-            image_embeddings = self.image_tokenizer.process_image(albedo_for_clip).to(dtype=self.dtype)
-        
-        # GT emission mask (binary, where emission > 0) - used as input condition when available
-        gt_emission_mask = batch.get('gt_emission_mask', None)  # [B, 1, H, W] or None
-        
-        condition_info = {
-            'rgb_cond': rgb_cond,  # Contains all material properties [B, 1, H, W, 8]
-            'text_embeddings': text_embeddings,
-            'image_embeddings': image_embeddings,
-            'prompt': prompt,
-            'albedo_map': albedo_map,
-            'metal_map': metal_map,
-            'rough_map': rough_map,
-            'alpha_map': alpha_map,
-            'normal_map': normal_map,
-            'gt_emission_mask': gt_emission_mask,
-        }
-        
-        return condition_info
-    
-    def forward(self, condition: Dict[str, Any], diffusion_data: Dict[str, Any], condition_drop=None) -> Dict[str, Any]:
-        """
-        Override forward to work directly in UV space without 3D-to-UV baking.
-        Since our data is already in UV space, we pass pre-baked material properties directly.
-        
-        This works with both SimpleUVUNet and PointUVNet.
-        """
-        mask_map = diffusion_data["mask_map"]
-        position_map = diffusion_data["position_map"]
-        timesteps = diffusion_data["timesteps"]
-        input_tensor = diffusion_data["noisy_images"]
-
-        # Get CLIP embeddings (for PointUVNet compatibility)
-        text_embeddings = condition.get("text_embeddings", None)
-        image_embeddings = condition.get("image_embeddings", None)
-        # PointUVNet expects clip_embeddings as a list [text, image]
-        if text_embeddings is not None and image_embeddings is not None:
-            clip_embeddings = [text_embeddings, image_embeddings]
-        else:
-            clip_embeddings = None
-
-        # Get material properties (already in UV space)
-        albedo_map = condition.get("albedo_map")  # [B, 3, H, W]
-        normal_map = condition.get("normal_map")  # [B, 3, H, W]
-        metal_map = condition.get("metal_map")    # [B, 1, H, W]
-        rough_map = condition.get("rough_map")    # [B, 1, H, W]
-        alpha_map = condition.get("alpha_map", None)  # [B, 1, H, W] or None
-
-        # Prepare baked_texture: include all material properties (albedo + metallic + roughness
-        # [+ alpha]). Alpha belongs HERE rather than as a later concat element: this is the only
-        # placement that puts it before the occupancy mask in the backbone's input order, gives it
-        # the same [0,1]->[-1,1] remap as the other material channels, and keeps base_channels
-        # equal to in_channels so the gt_emission_mask oracle branch stays off.
-        if alpha_map is not None:
-            baked_texture = torch.cat([albedo_map, metal_map, rough_map, alpha_map], dim=1)  # [B, 6, H, W]
-        else:
-            baked_texture = torch.cat([albedo_map, metal_map, rough_map], dim=1)  # [B, 5, H, W]
-        baked_weights = mask_map     # [B, 1, H, W]
-        
-        # GT emission mask condition (if available)
-        gt_emission_mask = condition.get("gt_emission_mask", None)
-        
-        # Prepare image info with conditioning
-        image_info = {
-            'rgb_cond': condition.get("rgb_cond"),  # Contains all material properties [B, 1, H, W, 8]
-            'baked_texture': baked_texture,  # For PointUVNet: pre-baked material in UV space
-            'baked_weights': baked_weights,  # For PointUVNet: occupancy mask
-            'gt_emission_mask': gt_emission_mask,  # [B, 1, H, W] binary mask or None
-        }
-
-        # Get batch size from mask_map if input_tensor is None (eval mode)
-        if input_tensor is not None:
-            batch_size = input_tensor.shape[0]
-            device = input_tensor.device
-        else:
-            batch_size = mask_map.shape[0]
-            device = mask_map.device
-        
-        if condition_drop is None and self.training:
-            condition_drop = torch.rand(batch_size, device=device) < self.cfg.condition_drop_rate
-            condition_drop = condition_drop.float()
-        elif condition_drop is None:
-            condition_drop = torch.zeros(batch_size, device=device)
-        
-        # Call the backbone (works with both SimpleUVUNet and PointUVNet)
-        # For PointUVNet: pass clip_embeddings list
-        # For SimpleUVUNet: it expects image_embeddings but doesn't use it, so clip_embeddings works too
-        output, addition_info = self.backbone(
-           input_tensor,
-           mask_map,
-           position_map,
-           timesteps,
-           clip_embeddings,  # Changed from image_embeddings to support PointUVNet
-           image_info,
-           data_normalization=self.cfg.data_normalization,
-           condition_drop=condition_drop,
-        )
-
-        return output, addition_info
-    
-    def prepare_diffusion_data(self, batch, noisy_images=None):
-        """
-        Prepare diffusion data from batch.
-        Uses Flow Matching from parent class (matches original TEXGen).
-        Supports two modes:
-        - out_channels=3: Predict RGB emission
-        - out_channels=1: Predict binary mask only
-        """
-        device = get_device()
-        B = batch['gt_emission'].shape[0]
-        
-        # Check model output channels
-        out_channels = self.cfg.backbone.out_channels
-        
-        if out_channels == 1:
-            # MASK-ONLY MODE: Convert GT emission to binary mask
-            gt_emission = batch['gt_emission']  # [B, 3, H, W] in [-1, 1]
-            gt_emission_01 = (gt_emission + 1.0) / 2.0  # Convert to [0, 1]
-            emissive_threshold = self.cfg.loss.diffusion_loss_dict.get('emissive_threshold', 0.001)
-            
-            # Create binary mask: 1 where emission > threshold, -1 where <= threshold (for [-1, 1] space)
-            gt_mask_binary = (gt_emission_01.max(dim=1, keepdim=True)[0] > emissive_threshold).float()  # [B, 1, H, W] in [0, 1]
-            sample_images = gt_mask_binary * 2.0 - 1.0  # Convert to [-1, 1] for diffusion
-        else:
-            # RGB EMISSION MODE: Use GT emission directly
-            sample_images = batch['gt_emission']  # [B, 3, H, W] in [-1, 1]
-        
-        # Mask and position
-        mask_map = batch['mask_map']  # [B, 1, H, W]
-        position_map = batch['position_map']  # [B, 3, H, W]
-        
-        # Sample timesteps uniformly in [0, 1] with power transformation (like original TEXGen)
-        uniform_samples = torch.rand(B, device=device)
-        power = 2  # Skew towards smaller t (more noise)
-        timesteps = uniform_samples ** power
-        
-        # Add noise using Flow Matching (inherited from parent)
-        if noisy_images is not None:
-            noisy_images = noisy_images.to(dtype=self.dtype)
-        else:
-            noise = torch.randn_like(sample_images, dtype=self.dtype)
-            if sample_images is not None:
-                noisy_images = self.get_conditional_flow(noise, sample_images, timesteps)
-            else:
-                noisy_images = noise
-        
-        noisy_images *= mask_map
-        
-        loss_weights = torch.ones_like(timesteps, device=device, dtype=self.dtype)
-        
-        diffusion_data = {
-            'sample_images': sample_images,  # Either [B, 3, H, W] RGB or [B, 1, H, W] mask
-            'noisy_images': noisy_images,
-            'mask_map': mask_map,
-            'position_map': position_map,
-            'timesteps': timesteps,
-            'noise': noise,
-            'batch_loss_weights': loss_weights,
-        }
-        
-        return diffusion_data
-    
     def training_step(self, batch, batch_idx):
         """Training step for LightGen"""
         if batch is None:
@@ -395,7 +160,7 @@ class LightGenSystem(TEXGenDiffusion):
             log_memory(f"train_step_end (batch={batch_idx})", self.global_step)
         
         return total_loss
-    
+
     def validation_step(self, batch, batch_idx):
         """Validation step - images are logged via test tab composite views"""
         # Memory tracking at validation start
@@ -419,7 +184,7 @@ class LightGenSystem(TEXGenDiffusion):
             log_memory(f"after_val_cleanup (batch={batch_idx})", self.global_step)
         
         return result
-    
+
     def get_diffusion_loss(self, out, diffusion_data):
         """
         Compute diffusion loss with Flow Matching (inherited from parent).
@@ -638,7 +403,7 @@ class LightGenSystem(TEXGenDiffusion):
                         on_step=True, on_epoch=False, prog_bar=False)
         
         return loss_dict
-    
+
     def get_batched_pred_x0(self, out, timesteps, noisy_input):
         """
         Get predicted x0 from model output based on prediction type.
@@ -667,15 +432,3 @@ class LightGenSystem(TEXGenDiffusion):
             raise ValueError(f"Unknown prediction type: {self.prediction_type}")
         
         return pred_x0
-    
-    # test_pipeline method removed - using parent's Flow Matching-compatible version
-    # Parent class (texgen_test.py) uses simple Euler integration: x += Δt*v
-    # This matches the Flow Matching training: x_t = (1-t)*ε + t*x_0
-    #
-    # The old DDIM-based implementation below did NOT match training:
-    # - Used DDIM scheduler with discrete timesteps [0, 999]
-    # - Used complex DDIM.step() instead of simple Euler
-    # - Training was on continuous t ∈ [0, 1] with linear interpolation
-    #
-    # To re-enable DDIM (not recommended), uncomment the method below
-

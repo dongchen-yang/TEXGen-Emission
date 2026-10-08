@@ -156,26 +156,34 @@ Machines:
 ```
 BaseSystem (base.py)
   └─ TEXGenDiffusion (texgen_base.py) — Flow Matching, noise schedule, EMA
-       └─ TEXGenDiffusion (texgen_test.py) — Euler ODE inference, test pipeline
-            └─ LightGenSystem (lightgen_system.py) — emission losses, data prep
+       └─ TEXGenDiffusion (texgen_test.py) — conditioning, forward, data prep, Euler ODE inference
+            └─ TEXGenDiffusion (texgen_train.py) — training step and emission losses
 ```
+Upstream released no training code (`texgen_base.py`'s training hooks are `pass` stubs), so the
+training class is ours, in its own file; our conditioning, `forward` and `prepare_diffusion_data`
+replace upstream's in `texgen_test.py`.
 
 ### Dynamic Class Loading
 Classes are referenced by string paths in YAML configs. `spuv.find()` resolves them at runtime:
 ```yaml
-system_cls: spuv.systems.lightgen_system.LightGenSystem
+system_cls: spuv.systems.texgen_train.TEXGenDiffusion
 data_cls: spuv.data.mesh_uv.ObjaverseDataModule
 backbone_cls: spuv.models.sparse_networks.texgen_network.PointUVNet
 image_tokenizer_cls: spuv.models.tokenizers.clip.ClipTokenizer
 ```
-The loader (`spuv/data/mesh_uv.py`) and the backbone (`PointUVNet.forward` in
-`spuv/models/sparse_networks/texgen_network.py`) are upstream's, edited in place; `git diff
-upstream/main -- <file>` shows what we changed. A config written before that (every published
-checkpoint's `configs/parsed.yaml`) still names `spuv.data.lightgen_uv.LightGenDataModule` and
-`spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet` and carries `data.use_alpha`:
-`python scripts/convert_config.py <old.yaml> <new.yaml>` converts it.
-Inference reads the config beside the checkpoint (`<run>/ckpts/../configs/parsed.yaml`), so write
-the result into a copy of the run directory.
+The loader (`spuv/data/mesh_uv.py`), the backbone (`PointUVNet.forward` in
+`spuv/models/sparse_networks/texgen_network.py`) and the system's inference path
+(`spuv/systems/texgen_test.py`) are upstream's, edited in place; `git diff upstream/main -- <file>`
+shows what we changed. A config written before that (every published checkpoint's
+`configs/parsed.yaml`) still names `spuv.data.lightgen_uv.LightGenDataModule`,
+`spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet` and
+`spuv.systems.lightgen_system.LightGenSystem` and carries `data.use_alpha`, and the checkpoint itself
+pickles the old system class: `python scripts/convert_config.py <old.yaml> <new.yaml>` converts the
+config, `python scripts/convert_config.py --ckpt <old.ckpt> <new.ckpt>` the checkpoint (only its class
+paths are rewritten; ~10 s for 12 GB). Inference reads the config beside the checkpoint
+(`<run>/ckpts/../configs/parsed.yaml`), so write both into a copy of the run directory. The gate and
+the resume check convert into a per-host cache (`scripts/internal/gate/ckpt_for_tree.sh`), and the
+training check counts a class the converter renames as the same class.
 
 ### Backbone: PointUVNet
 Upstream's PointUVNet, its `forward` edited to take the material maps **pre-baked in UV space**
@@ -205,7 +213,7 @@ window_size: [0, 128, 128]
 - Inference: Euler ODE integration over `test_num_steps` (default 50) with `test_cfg_scale` (default 2.0)
 - `rescale_betas_zero_snr: true` for terminal SNR fix
 
-### Loss Functions (`lightgen_system.py`)
+### Loss Functions (`texgen_train.py`)
 All variants share:
 - **MSE loss** (`lambda_mse: 1.0`) on velocity, masked to valid UV pixels
 - **L1 loss** (`lambda_l1: 0.5`) on velocity, masked to valid UV pixels
@@ -227,7 +235,7 @@ NPZ files (`somage.npz`) at 512x512 UV resolution, downsampled to config resolut
 ```
 occupancy      [H, W, 1]  bool    — valid UV pixel mask
 position       [H, W, 3]  uint16  — 3D positions (decoded to [-2, 2])
-objnormal      [H, W, 3]  uint16  — normals (decoded to [-1, 1])
+objnormal      [H, W, 3]  uint16  — normals; in the npz but not read (the model never used them)
 color          [H, W, 3]  uint8   — albedo (decoded to [0, 1])
 metal          [H, W, 1]  uint8   — metallic (decoded to [0, 1])
 rough          [H, W, 1]  uint8   — roughness (decoded to [0, 1])
@@ -430,7 +438,7 @@ windows and therefore the output**. The U-Net builds a `down{scale}` for every s
    `torch.Generator(device="cuda")` leaves every one of those `randperm` calls unseeded and
    seed 0 will not reproduce itself. `inference_specific_samples.py` does this per shape.
 2. Seed **before** `test_pipeline`, not inside it: `prepare_diffusion_data` draws and discards
-   two CUDA tensors first (`lightgen_system.py:247,255`), and discarded draws still advance
+   two CUDA tensors first (`texgen_test.py:67,75`), and discarded draws still advance
    the stream.
 3. Even correctly seeded, this lane is **not bit-identical** — nothing sets
    `torch.use_deterministic_algorithms`, and torchsparse/PTv3 reduction order varies. Measured

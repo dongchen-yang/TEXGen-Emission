@@ -124,11 +124,11 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     
     # Load the model
     print("\n4. Loading model...")
-    from spuv.systems.lightgen_system import LightGenSystem
+    from spuv.systems.texgen_train import TEXGenDiffusion
     
     # Create model from config first (avoids config merge issues)
     # Pass only the system config, not the full config
-    model = LightGenSystem(cfg.system)
+    model = TEXGenDiffusion(cfg.system)
     
     # Load weights from checkpoint
     state_dict = checkpoint['state_dict']
@@ -187,8 +187,8 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
         # GLOBAL seed, and it must land HERE -- before test_pipeline, not inside it.
         # Three RNG consumers sit downstream and two of them are easy to miss:
         #   * prepare_diffusion_data draws and DISCARDS two CUDA tensors
-        #     (lightgen_system.py:247,255) -- discarded, but they advance the stream;
-        #   * the initial noise, one CUDA draw (texgen_test.py:506);
+        #     (texgen_test.py:67,75) -- discarded, but they advance the stream;
+        #   * the initial noise, one CUDA draw (texgen_test.py:561);
         #   * hundreds of CPU torch.randperm calls per shape from shuffle_orders=True
         #     (texgen_network.py:647,792 -> ptv3_model_texgen.py:129,703). That flag is
         #     hardcoded and NOT gated on self.training -- the only self.training guard in

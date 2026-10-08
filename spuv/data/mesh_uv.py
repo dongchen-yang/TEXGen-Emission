@@ -69,7 +69,6 @@ def decode_uint8_to_float(data):
 UV_CHANNELS = {
     "occupancy": (lambda a: a, "nearest"),
     "position": (decode_uint16_to_float, "bilinear"),  # [-2, 2]
-    "objnormal": (lambda a: decode_uint16_to_float(a, -1.0, 1.0), "bilinear"),
     "color": (decode_uint8_to_float, "bilinear"),  # albedo
     "metal": (decode_uint8_to_float, "bilinear"),
     "rough": (decode_uint8_to_float, "bilinear"),
@@ -236,9 +235,6 @@ class ObjaverseDataset(Dataset):
         # Normalize emission_color to [-1, 1] for diffusion
         maps["emission_color"] = maps["emission_color"] * 2.0 - 1.0
 
-        # Create input tensor: [position(3), normal(3), color(3), metal(1), rough(1)] = 11 channels
-        input_tensor = torch.cat([maps[k] for k in ("position", "objnormal", "color", "metal", "rough")], dim=0)
-
         # Resize UV data to the configured resolution if needed
         current_h, current_w = maps["occupancy"].shape[-2:]
         target_h, target_w = self.cfg.uv_height, self.cfg.uv_width
@@ -249,7 +245,6 @@ class ObjaverseDataset(Dataset):
                                         align_corners=False if mode == "bilinear" else None).squeeze(0)
                     for name, (_, mode) in UV_CHANNELS.items()}
             gt_emission_mask = F.interpolate(gt_emission_mask.unsqueeze(0), size=size, mode="nearest").squeeze(0)
-            input_tensor = F.interpolate(input_tensor.unsqueeze(0), size=size, mode="bilinear", align_corners=False).squeeze(0)
 
         if self.split == "train":
             height, width = self.cfg.height, self.cfg.width
@@ -265,9 +260,7 @@ class ObjaverseDataset(Dataset):
             "uv_width": self.cfg.uv_width,
             
             # UV space data (resized to match configured resolution)
-            "input_tensor": input_tensor,  # [11, H, W] where H=uv_height, W=uv_width
             "position_map": maps["position"],  # [3, H, W]
-            "normal_map": maps["objnormal"],  # [3, H, W]
             "albedo_map": maps["color"],  # [3, H, W]
             "metal_map": maps["metal"],  # [1, H, W]
             "rough_map": maps["rough"],  # [1, H, W]
