@@ -22,8 +22,11 @@ Run it on the workstation, from any directory; stdlib only (comparisons run in t
      RAM (another session can fill the workstation's 62 GB), the inputs staged, and, except for the
      workstation, admitted by --qualify. Solar: free L40S on our L40S nodes and theia-lab's
      (sinfo + scontrol, by the compute-access skill's hostprobe rules), with 6 CPUs and 64 GB per GPU
-     free. Alliance clusters are not probed: no login socket is kept open for them and they have no
-     baselines.
+     free; with --evict_preemptible, what preempt_me jobs hold on a node of ours where no other lab's
+     ordinary job runs counts as free too: that job is pinned there (-w), so Slurm can preempt only
+     those, and every other job of ours is excluded from our nodes except those with GPUs free
+     outright. Alliance clusters are not probed: no login socket is kept open for them and they have
+     no baselines.
   2. Plan: the release gate and each training check go to a GPU whose type has that baseline, with an
      envelope of at least 4 pre-refactor runs (baselines.json; Dongchen's envelope rule of
      2026-10-06), each where it finishes first; the paper gate's shapes are then split over every
@@ -45,9 +48,13 @@ Run it on the workstation, from any directory; stdlib only (comparisons run in t
      after a new probe, on another free GPU of the same type, never the one it ran on: another lab
      host, or on Solar another node (--exclude=<first node> on our nodes, or a theia-lab node). With
      no such GPU free, or when the rerun lands on the first host anyway, the task stays UNRESOLVED.
-     It fails only if the rerun is outside too; the summary lists both runs.
-Exit 0 PASS: every requested shape and check passed (IDENTICAL or WITHIN_NOISE, at once or on its
-     rerun).  1 FAIL: a result outside the envelope twice, a structure or file difference, or the
+     A paper piece also gets a control (Dongchen 2026-10-08): the pre-refactor tree on the same shapes
+     in the same order, on any free GPU of the type, since a shape's output can depend on the shapes
+     run before it in the process. The piece passes if its first run or its rerun is within the
+     tolerance of that control. Otherwise it fails only if the rerun is outside too; the summary lists
+     every run.
+Exit 0 PASS: every requested shape and check passed (IDENTICAL or WITHIN_NOISE, at once, on its
+     rerun, or against its control).  1 FAIL: a result outside the envelope twice, a structure or file difference, or the
      wrong card.  2 INCOMPLETE: something did not run, or a rerun found no other free GPU (the summary
      names it and the command that finishes it).  3 NOTHING_FREE: no GPU free for any check.
 summary.json keeps the requested checks and paper shapes, so --rescore judges completeness against
@@ -102,6 +109,17 @@ SOLAR_NODES = ["cs-venus-15", "cs-venus-16", "cs-venus-17"]   # our L40S nodes (
 # -w: we rank below their owners, so a pinned job there can be preempted but never evicts anyone (on our
 # own nodes -w would evict another lab's running job, so those are never pinned). --deadline still applies.
 SOLAR_OTHER = ["cs-venus-18", "cs-venus-20"]
+# Jobs that other labs submit to be preempted (named preempt_me_...). With --evict_preemptible, what
+# they hold on our own nodes counts as free: our job outranks them there and Slurm preempts one
+# (tested 2026-10-08: job 293346 on cs-venus-16 was preempted and ours started 10 s later).
+PREEMPTIBLE_PREFIX = "preempt_me"
+OUR_ACCOUNT = "3dlg-hcvc-lab"   # Slurm account of our lab: its jobs are not preempted by ours
+EVICT_START_S = 180             # an evicting job waits for its victim to stop (SIGTERM, grace time, epilog)
+# A shape's output can depend on which shapes ran before it in the same process (Dongchen 2026-10-08:
+# the pre-refactor tree gave 59 shapes byte-identical to e64db55's when run in the same order, both 1/255
+# off the baseline, which ran all 204 in one order). So a paper piece outside the envelope also gets a
+# control: the pre-refactor tree on the same shapes in the same order, on a GPU of the same type.
+CONTROL_TREE = "pre-refactor"
 SOLAR_CPU, SOLAR_MEM_GB = 6, 64                                # per GPU; step 7's 4-GPU job peaked at 171 GB
 # Seconds, measured in steps 7 and 7b: per paper shape, per gate start (model load), per fixed check.
 SPEED = {"rtx4090": {"shape": 6.6, "gate_start": 40, "release": 180, "fresh": 120, "resume": 100},
@@ -218,8 +236,34 @@ def load_hostprobe():
     return hp
 
 
-def probe_solar(nodes):
-    """Free L40S per node, by hostprobe's rules (free = CfgTRES - AllocTRES; node state usable)."""
+def evictable(hp, nodes):
+    """{node: {gpus, cpus, mem_gb, jobs, blockers}} on our own nodes among `nodes`: what running preempt_me
+    jobs hold, and the other labs' ordinary jobs there (`blockers`). Slurm picks a victim by priority, not by
+    name, so a node counts as evictable only when no blocker runs on it."""
+    own = [n for n in nodes if n in SOLAR_NODES]
+    if not own:
+        return {}
+    rc, out = hp.ssh("star2", f'squeue -w {",".join(own)} -h -t RUNNING -o "%N|%j|%b|%C|%m|%i|%u|%a"', timeout=30)
+    held = {}
+    for line in out.splitlines() if rc == 0 else []:
+        f = line.split("|")
+        if len(f) != 8 or f[0] not in own or f[7] == OUR_ACCOUNT:
+            continue   # a multi-node job lists a node range and is skipped; our own lab's jobs are not preempted
+        h = held.setdefault(f[0], {"gpus": 0, "cpus": 0, "mem_gb": 0, "jobs": [], "blockers": []})
+        if not f[1].startswith(PREEMPTIBLE_PREFIX):
+            h["blockers"].append(f"{f[6]} job {f[5]}")
+            continue
+        gpus = int(f[2].rsplit(":", 1)[-1]) if f[2].startswith("gres/gpu") and f[2].rsplit(":", 1)[-1].isdigit() else 0
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)([KMGT]?)", f[4])   # %m: memory per node, MB without a suffix
+        mem_gb = int(float(m.group(1)) * {"K": 1 / 2**20, "M": 1 / 1024, "": 1 / 1024, "G": 1, "T": 1024}[m.group(2)]) if m else 0
+        h["gpus"], h["cpus"], h["mem_gb"] = h["gpus"] + gpus, h["cpus"] + int(f[3]), h["mem_gb"] + mem_gb
+        h["jobs"].append(f"{f[6]} job {f[5]}")
+    return held
+
+
+def probe_solar(nodes, evict=False):
+    """Free L40S per node, by hostprobe's rules (free = CfgTRES - AllocTRES; node state usable). With
+    `evict`, what preempt_me jobs hold on our own nodes counts as free too."""
     try:
         hp = load_hostprobe()
     except Exception as e:
@@ -230,6 +274,7 @@ def probe_solar(nodes):
     if rc != 0 or rc2 != 0:
         return [{"host": n, "kind": "solar", "free_gpus": 0, "reason": "star2 unreachable"} for n in nodes]
     si, ct = hp.parse_sinfo(si), hp.parse_scontrol(ct)
+    held = evictable(hp, nodes) if evict else {}
     for n in nodes:
         row = {"host": n, "kind": "solar", "free_gpus": 0, "reason": ""}
         if n not in ct or n not in si:
@@ -238,11 +283,20 @@ def probe_solar(nodes):
             row["reason"] = f"gres {si[n]['gres']}, not L40S"
         else:
             state, free, reason = hp.solar_state(si[n], ct[n])
-            row["reason"] = f"{state}: {reason}"
-            if state in ("idle", "partial"):
+            if state != "down":
                 cpus = ct[n]["cpu_total"] - ct[n]["cpu_alloc"]
                 mem = (ct[n]["mem_total_mb"] - ct[n]["mem_alloc_mb"]) // 1024
-                row["free_gpus"] = max(0, min(free, cpus // SOLAR_CPU, mem // SOLAR_MEM_GB))
+                h = held.get(n)
+                if h and h["gpus"] and h["blockers"]:
+                    reason += f"; not evicting: {', '.join(h['blockers'])} also run there"
+                elif h and h["gpus"]:
+                    free = min(ct[n]["gres_total"], free + h["gpus"])
+                    cpus, mem, state = cpus + h["cpus"], mem + h["mem_gb"], "partial"
+                    reason += f"; evicts {', '.join(h['jobs'])} ({h['gpus']} gpus)"
+                    row["evict"] = True
+                if state in ("idle", "partial"):
+                    row["free_gpus"] = max(0, min(free, cpus // SOLAR_CPU, mem // SOLAR_MEM_GB))
+            row["reason"] = f"{state}: {reason}"
         rows.append(row)
     return rows
 
@@ -328,6 +382,8 @@ class Run:
         self.pins = {}          # Solar job name -> node it is pinned to (other labs' nodes only)
         self.excludes = {}      # Solar job name -> nodes it must not run on (a rerun's first node)
         self.deadlines = {}     # Solar job name -> epoch after which a job without a status file is given up
+        self.control_of = {}    # control task -> the paper task it controls (runs CONTROL_TREE, not self.tree)
+        self.evicting = set()   # Solar jobs pinned to a node of ours to preempt its preempt_me jobs
         self.requested = None   # the checks and paper shapes asked for; summary.json keeps them for --rescore
         self.started = time.time()
         self.results_dir = f"{self.fan}/results"
@@ -345,6 +401,8 @@ class Run:
         on(host, f"mkdir -p {C}/trees {self.fan}/shas {self.fan}/workers {self.fan}/logs {self.fan}/out "
                  f"{h['gate']} {h['repo']}/evaluation/newdata_eval", check=True)
         rsync(self.tree.rstrip("/") + "/", f"{h['ssh']}:{self.lab_tree(host)}/", "--delete")
+        if self.control_of:
+            rsync(f"{C}/trees/{CONTROL_TREE}/", f"{h['ssh']}:{C}/trees/{CONTROL_TREE}/", "--delete")
         rsync(HERE + "/", f"{h['ssh']}:{h['gate']}/", "--delete", "--exclude", "__pycache__")
         rsync(f"{LIGHTGEN}/evaluation/newdata_eval/run_texgen_infer.py",
               f"{h['ssh']}:{h['repo']}/evaluation/newdata_eval/")
@@ -384,7 +442,8 @@ class Run:
         for name, check, shas in tasks:
             out = f"{self.fan}/out/{name}"
             if check == "paper":
-                lines.append(f"run {name} bash {gate}/gate-det.sh {tree} {out} {pck} {self.fan}/shas/{name}.txt")
+                t = f"{C}/trees/{CONTROL_TREE}" if name in self.control_of else tree
+                lines.append(f"run {name} bash {gate}/gate-det.sh {t} {out} {pck} {self.fan}/shas/{name}.txt")
             elif check == "release":
                 lines.append(f"run {name} bash {gate}/gate-det.sh {tree} {out} {rck} {R}/release_test20.txt "
                              f"{R} {R}/df_lightgenbench.parquet")
@@ -425,6 +484,8 @@ class Run:
         star2("mkdir -p refactor_checks/trees refactor_checks/tooling/repo/evaluation/newdata_eval "
               f"refactor_checks/logs refactor_checks/fanout/{self.label}/shas", check=True)
         rsync(self.tree.rstrip("/") + "/", f"star2:refactor_checks/trees/{self.tree_name}/", "--delete")
+        if self.control_of:
+            rsync(f"{C}/trees/{CONTROL_TREE}/", f"star2:refactor_checks/trees/{CONTROL_TREE}/", "--delete")
         rsync(TEXGEN_REPO + "/scripts/", "star2:refactor_checks/tooling/scripts/", "--delete", "--exclude", "__pycache__")
         rsync(f"{LIGHTGEN}/evaluation/newdata_eval/run_texgen_infer.py",
               "star2:refactor_checks/tooling/repo/evaluation/newdata_eval/")
@@ -445,7 +506,8 @@ class Run:
                         rel = f"fanout/{self.label}/shas/{name}.txt"
                         with open(f"{self.fan}/shas/{name}.txt", "w") as f:
                             f.write("\n".join(shas) + "\n")
-                    lines.append(f"{g} {name} {check} {rel}".rstrip())
+                    lines.append(f"{g} {name} {check} {rel} {CONTROL_TREE}" if name in self.control_of
+                                 else f"{g} {name} {check} {rel}".rstrip())
             tf = f"{self.fan}/{jname}.tasks"
             with open(tf, "w") as f:
                 f.write("\n".join(lines) + "\n")
@@ -479,30 +541,44 @@ class Run:
         return sub
 
     def confirm_solar(self, sub):
-        """After 30 s: RUNNING jobs stay; anything else is canceled. {job name: node}. If squeue fails
-        twice, no job is confirmed, so all are canceled (never wait)."""
+        """After 30 s: RUNNING jobs stay; anything else is canceled, except that an evicting job still
+        PENDING is given until EVICT_START_S. {job name: node}. If squeue fails twice, no job is
+        confirmed, so all are canceled (never wait)."""
         if not sub:
             return {}
-        time.sleep(30)    # step 7b: every job on free L40S was RUNNING within 20 s
-        for attempt in (1, 2):
-            rc, out = star2("squeue --me -h -o '%i|%T|%N'")   # --me: no error when every id has left the queue
-            if rc == 0:
-                break
-            say(f"solar: squeue failed (rc={rc}): {out.strip()[:200]}")
-            time.sleep(5)
-        state = {l.split("|")[0]: l.split("|")[1:] for l in out.splitlines() if l.count("|") == 2} if rc == 0 else {}
-        running = {}
-        for jname, (jid, t0) in sub.items():
-            st, node = state.get(jid, ["GONE" if rc == 0 else "UNCONFIRMED", ""])
-            if st == "RUNNING":
-                running[jname] = node
-                say(f"solar {jname}: job {jid} RUNNING on {node}")
-            else:
-                rc2, out2 = star2(f"scancel {jid}")
-                say(f"solar {jname}: job {jid} {st}, canceled; its work goes to the lab GPUs" if rc2 == 0 else
-                    f"solar {jname}: job {jid} {st}; scancel FAILED (rc={rc2}), cancel it by hand: "
-                    f"ssh star2 scancel {jid}")
-        return running
+        running, pending, waited = {}, dict(sub), 0
+        while True:
+            # step 7b: every job on free L40S was RUNNING within 20 s; an evicting job first waits for its
+            # victim to stop (11 s on 2026-10-08), so it gets EVICT_START_S
+            step = 30 if waited == 0 else 15
+            time.sleep(step)
+            waited += step
+            for attempt in (1, 2):
+                rc, out = star2("squeue --me -h -o '%i|%T|%N'")   # --me: no error when every id has left the queue
+                if rc == 0:
+                    break
+                say(f"solar: squeue failed (rc={rc}): {out.strip()[:200]}")
+                time.sleep(5)
+            state = {l.split("|")[0]: l.split("|")[1:] for l in out.splitlines() if l.count("|") == 2} if rc == 0 else {}
+            for jname, (jid, t0) in list(pending.items()):
+                st, node = state.get(jid, ["GONE" if rc == 0 else "UNCONFIRMED", ""])
+                if st == "RUNNING":
+                    running[jname] = node
+                    del pending[jname]
+                    say(f"solar {jname}: job {jid} RUNNING on {node}")
+                elif st == "PENDING" and jname in self.evicting and waited < EVICT_START_S:
+                    continue
+                else:
+                    self.cancel_pending(jname, jid, st)
+                    del pending[jname]
+            if not pending:
+                return running
+
+    def cancel_pending(self, jname, jid, st):
+        rc2, out2 = star2(f"scancel {jid}")
+        say(f"solar {jname}: job {jid} {st}, canceled; its work goes to the lab GPUs" if rc2 == 0 else
+            f"solar {jname}: job {jid} {st}; scancel FAILED (rc={rc2}), cancel it by hand: "
+            f"ssh star2 scancel {jid}")
 
     def preemptions(self, sub, running):
         t0 = min(t for _, t in sub.values()) if sub else None
@@ -545,6 +621,9 @@ class Run:
         if self.names.get(gpu) != typ:
             r["verdict"] = f"MISROUTED (gpu.txt names {gpu!r}, planned {typ})"
             return
+        if r.get("control_of"):   # a reference for its piece, not a candidate: compare_control uses it
+            r["verdict"] = "CONTROL"
+            return
         if check in FIXED[1:]:
             cmd = [PY, "-I", f"{HERE}/compare_traincheck.py", "--a", base["run"], "--b", f"{out}/record.jsonl",
                    "--envelope", *base["envelope"]]
@@ -560,6 +639,22 @@ class Run:
         m = re.findall(r"verdict=(\S+(?: \([^)]*\))?)", text)
         r["verdict"] = m[-1] if m else f"NO_VERDICT (rc={rc}, see {txt})"
         r["rc"] = rc
+
+    def compare_control(self, task, control):
+        """A paper task's output against its pre-refactor control (same shapes, same order, same GPU
+        type) under the tolerance rule alone: sets r["vs_control"] to IDENTICAL, WITHIN_NOISE or DIFFERENT."""
+        r, c = self.results.get(task), self.results.get(control)
+        if not r or not c or r.get("status") != "done" or c.get("verdict") != "CONTROL" or r["type"] != c["type"]:
+            return
+        if not r.get("verdict", "").startswith(("OUTSIDE_NOISE", "IDENTICAL", "WITHIN_NOISE")):
+            return   # MISROUTED, NO_VERDICT: the card or the output is not verified, so it proves nothing
+        txt = f"{self.results_dir}/{task}_vs_control.txt"
+        rc, text = sh([PY, f"{HERE}/compare_numeric.py", "--a", c["out"], "--b", r["out"],
+                       "--shas_file", f"{self.fan}/shas/{task}.txt"], 1800)
+        with open(txt, "w") as f:
+            f.write(text)
+        m = re.findall(r"verdict=(\S+)", text)
+        r["vs_control"] = m[-1] if m else f"NO_VERDICT (rc={rc}, see {txt})"
 
 
 def tree_from_rev(rev):
@@ -633,18 +728,28 @@ def probe_all(a, names, tag, run=None):
                 continue
             workers.append({"id": host, "host": host, "kind": "lab", "type": typ, "start": 0,
                             "vram_free": row["vram_free"], "ram_free_gb": row["ram_free_gb"]})
-    solar = probe_solar(a.solar.split(",")) if a.solar else []
+    evict = getattr(a, "evict_preemptible", False)
+    solar = probe_solar(a.solar.split(","), evict) if a.solar else []
     for row in solar:
         say(f"probe {row['host']:<12} {'L40S':<24} {'FREE x' + str(row['free_gpus']) if row['free_gpus'] else 'skip'}"
             f"  {row['reason']}")
+    # Allowed to preempt: a job that evicts is pinned to its node (-w), where every other lab's job is a
+    # preempt_me one, so those are its only possible victims; every other job of ours stays off our nodes
+    # except those with GPUs free outright, so it cannot preempt anyone at all.
+    open_nodes = {r["host"] for r in solar if r["free_gpus"] and not r.get("evict")}
+    protected = set(SOLAR_NODES) - open_nodes if evict else set()
     jobs_ws = []
     for i, row in enumerate(sorted((r for r in solar if r["free_gpus"]), key=lambda r: -r["free_gpus"])):
         j = f"{tag}s{i + 1}"
-        if run is not None and row["host"] in SOLAR_OTHER:
+        if run is not None and (row["host"] in SOLAR_OTHER or row.get("evict")):
             run.pins[j] = row["host"]
+            if row.get("evict"):
+                run.evicting.add(j)
+        elif run is not None and protected:
+            run.excludes.setdefault(j, set()).update(protected)
         # node: the node probed (a pinned job runs there; an unpinned one goes where Slurm puts it)
         jobs_ws.append((j, [{"id": f"{j}g{g}", "host": "solar", "job": j, "kind": "solar", "type": "l40s",
-                             "node": row["host"], "pinned": row["host"] in SOLAR_OTHER,
+                             "node": row["host"], "pinned": row["host"] in SOLAR_OTHER or bool(row.get("evict")),
                              "start": SOLAR_START, "vram_free": 46000, "ram_free_gb": SOLAR_MEM_GB}
                             for g in range(row["free_gpus"])]))
     return workers + [w for _, ws in jobs_ws for w in ws], jobs_ws, solar
@@ -687,7 +792,8 @@ def execute(run, workers, jobs_ws, tasks, secs, lab_plan, rnd):
                     on_solar[name] = (check, sh_)
                     run.results[name] = {"worker": f"{j}/{running[j]}/gpu{g}", "node": running[j], "type": "l40s",
                                          "check": check, "shas": sh_, "out": f"{run.fan}/out/{j}/{name}",
-                                         "status": "running", "round": rnd}
+                                         "status": "running", "round": rnd,
+                                         **({"control_of": run.control_of[name]} if name in run.control_of else {})}
     ltasks, lsecs = lab_plan(on_solar)
     procs = {}
     for w in workers:
@@ -700,7 +806,8 @@ def execute(run, workers, jobs_ws, tasks, secs, lab_plan, rnd):
             continue
         for name, check, sh_ in ltasks[w["id"]]:
             run.results[name] = {"worker": w["host"], "node": w["host"], "type": w["type"], "check": check,
-                                 "shas": sh_, "out": f"{run.fan}/out/{name}", "status": "running", "round": rnd}
+                                 "shas": sh_, "out": f"{run.fan}/out/{name}", "status": "running", "round": rnd,
+                                 **({"control_of": run.control_of[name]} if name in run.control_of else {})}
         procs[w["id"]] = (run.launch_lab(w["host"], w["id"], ltasks[w["id"]], rnd), time.time(), lsecs[w["id"]])
         say(f"lab {w['host']}: queue started ({len(ltasks[w['id']])} tasks, ~{lsecs[w['id']] / 60:.1f} min)")
     if not procs and not running:
@@ -839,16 +946,27 @@ def run_checks(a):
     # more on another free GPU of its type, never the one it ran on, before it counts as failed
     outside = [n for n, r in run.results.items() if r["verdict"].startswith("OUTSIDE_NOISE")]
     if outside:
-        say(f"outside the envelope, rerun once on another GPU: {', '.join(outside)}")
+        controls = [n for n in outside if run.results[n]["check"] == "paper"]
+        say(f"outside the envelope, rerun once on another GPU: {', '.join(outside)}"
+            + (f"; {CONTROL_TREE} control of the same shapes in the same order: {', '.join(controls)}"
+               if controls else ""))
+        run.control_of.update({f"{n}_control": n for n in controls})
         workers2, jobs_ws2, _ = probe_all(a, names, "r", run)
-        tasks2, secs2, excludes, unplaced = plan_reruns(run.results, outside, workers2)
-        run.excludes.update(excludes)
+        tasks2, secs2, excludes, unplaced, unplaced_c = plan_reruns(run.results, outside, workers2, controls)
+        for j, ex in excludes.items():   # merged: probe_all may already exclude protected nodes
+            run.excludes.setdefault(j, set()).update(ex)
         for n in unplaced:
             r = run.results[n]
-            say(f"  {n}: no free {r['type']} GPU other than {node_of(r)} now; it stays UNRESOLVED")
+            say(f"  {n}: no free {r['type']} GPU other than {node_of(r)} now; no rerun")
+        for n in unplaced_c:
+            say(f"  {n}: no free {run.results[n]['type']} GPU for its control now")
         job_of = {w["id"]: w.get("job") for w in workers2}
         for wid, ts in tasks2.items():
             for name, _, _ in ts:
+                if name in run.control_of:
+                    run.results[run.control_of[name]]["control"] = name
+                    say(f"  {run.control_of[name]}: {CONTROL_TREE} control -> {wid}")
+                    continue
                 n = name[:-len("_rerun")]
                 run.results[n]["rerun"] = name
                 ex = excludes.get(job_of[wid])
@@ -860,8 +978,13 @@ def run_checks(a):
                 {i: t for i, t in tasks2.items() if t and i in lab_ids},
                 {i: s for i, s in secs2.items() if i in lab_ids}), 2)
         for n in outside:
-            rr = run.results.get(run.results[n].get("rerun", ""), {})
+            r = run.results[n]
+            rr = run.results.get(r.get("rerun", ""), {})
             rr["rerun_of"] = n
+            if r.get("control"):
+                for t in (n, r.get("rerun")):
+                    if t:
+                        run.compare_control(t, r["control"])
     return summarize(run, a, checks, shas)
 
 
@@ -873,15 +996,18 @@ def node_of(r):
     return w.split("/")[1] if w.count("/") == 2 else w
 
 
-def plan_reruns(results, outside, workers):
+def plan_reruns(results, outside, workers, controls=()):
     """Place each task in `outside` on a free GPU of its type that is not where it ran: another lab host,
     or a Solar job on another node. An unpinned Solar job may land on any of our nodes, so it gets
     --exclude=<the first nodes of its tasks>; a pinned one (theia-lab) runs on its own node, which the
-    candidate test already tells apart. No such GPU: the task stays unplaced (UNRESOLVED).
-    Returns ({worker id: [(name, check, shas)]}, {worker id: seconds}, {Solar job: {nodes}}, [unplaced])."""
+    candidate test already tells apart. No such GPU: the task stays unplaced (UNRESOLVED). Each paper
+    task in `controls` also gets <name>_control (CONTROL_TREE on the same shapes in the same order) on
+    any free GPU of its type, the first run's included.
+    Returns ({worker id: [(name, check, shas)]}, {worker id: seconds}, {Solar job: {nodes}}, [unplaced],
+    [controls unplaced])."""
     load = {w["id"]: w["start"] for w in workers}
     tasks = {w["id"]: [] for w in workers}
-    excludes, unplaced = {}, []
+    excludes, unplaced, unplaced_controls = {}, [], []
     for n in outside:
         r = results[n]
         first = node_of(r)
@@ -897,7 +1023,16 @@ def plan_reruns(results, outside, workers):
         load[w["id"]] += dur
         if w["kind"] == "solar" and not w["pinned"]:
             excludes.setdefault(w["job"], set()).add(first)
-    return tasks, {i: load[i] for i in load if tasks[i]}, excludes, unplaced
+    for n in controls:
+        r = results[n]
+        cand = [w for w in workers if w["type"] == r["type"] and fits(w, "paper")]
+        if not cand:
+            unplaced_controls.append(n)
+            continue
+        w = min(cand, key=lambda w: load[w["id"]])
+        tasks[w["id"]].append((f"{n}_control", "paper", r["shas"]))
+        load[w["id"]] += SPEED[w["type"]]["gate_start"] + len(r["shas"]) * SPEED[w["type"]]["shape"]
+    return tasks, {i: load[i] for i in load if tasks[i]}, excludes, unplaced, unplaced_controls
 
 
 def summarize(run, a, checks, shas, tag="", note=""):
@@ -914,7 +1049,10 @@ def summarize(run, a, checks, shas, tag="", note=""):
         elif v.startswith("OUTSIDE_NOISE"):
             rr = run.results.get(r.get("rerun", ""), {})
             rv = rr.get("verdict", "")
-            if rr and r.get("host") and rr.get("host") == r.get("host"):
+            if r.get("vs_control") in good or rr.get("vs_control") in good:
+                final[n] = "PASS"   # the shift comes from the shape order in the process, not the code
+                r["note"] = f"matches its {CONTROL_TREE} control: same shapes, same order"
+            elif rr and r.get("host") and rr.get("host") == r.get("host"):
                 final[n] = "UNRESOLVED"   # a rerun on the first run's host is no second GPU
                 rr["note"] = f"ran on {rr['host']} like the first run: does not count"
             else:
@@ -928,10 +1066,12 @@ def summarize(run, a, checks, shas, tag="", note=""):
     missing_checks = [c for c in checks if c in FIXED and c not in ran_fixed]
     lines = [f"fanout {run.label}: tree {run.tree} {a.rev_sha or ''}".rstrip()] + ([note] if note else []) + [
              f"{'task':<22}{'check':<9}{'type':<9}{'where':<26}{'n':>5}{'secs':>7}  verdict"]
-    order = sorted(run.results.items(), key=lambda kv: (kv[1]["check"] != "paper", kv[1].get("rerun_of", kv[0]), kv[0]))
+    order = sorted(run.results.items(), key=lambda kv: (kv[1]["check"] != "paper",
+                   kv[1].get("rerun_of") or kv[1].get("control_of") or kv[0], kv[0]))
     for name, r in order:
         n = len(r["shas"]) if r["shas"] else ""
-        tail = f"  -> {r['final']}" if "final" in r and r["final"] != "PASS" or r.get("rerun") else ""
+        tail = f"  -> {r['final']}" if "final" in r and (r["final"] != "PASS" or r.get("rerun") or r.get("control")) else ""
+        tail += f"  [vs control: {r['vs_control']}]" if r.get("vs_control") else ""
         tail += f"  ({r['note']})" if r.get("note") else ""
         lines.append(f"{name:<22}{r['check']:<9}{r['type']:<9}{r['worker']:<26}{n:>5}{r.get('secs', ''):>7}  "
                      f"{r['verdict']}{tail}")
@@ -943,8 +1083,9 @@ def summarize(run, a, checks, shas, tag="", note=""):
     else:
         verdict, code = "PASS", 0
     reruns = [n for n, r in run.results.items() if r.get("rerun")]
+    ncontrols = sum(1 for r in run.results.values() if r.get("control"))
     lines.append(f"paper shapes passed {len(ran_paper)}/{len(shas)}; fixed checks passed {sorted(ran_fixed)} of "
-                 f"{[c for c in checks if c in FIXED]}; reruns {len(reruns)}; wall {wall:.1f} min")
+                 f"{[c for c in checks if c in FIXED]}; reruns {len(reruns)}; controls {ncontrols}; wall {wall:.1f} min")
     if missing_shas:
         with open(f"{run.fan}/leftover_paper.txt", "w") as f:
             f.write("\n".join(missing_shas) + "\n")
@@ -1007,6 +1148,12 @@ def rescore(fan, checks_arg=None, paper_shas_arg=None):
             r["verdict"] = f"NOT_RUN ({r['status']})"
     for r in run.results.values():
         r.setdefault("round", 1)
+    for name, r in list(run.results.items()):
+        if r.get("control"):
+            for t in (name, r.get("rerun")):
+                if t in run.results:
+                    run.results[t].pop("vs_control", None)
+                    run.compare_control(t, r["control"])
     return summarize(run, a, req["checks"], req["paper_shas"], tag=f"_rescored_{stamp}",
                      note=f"re-scored {stamp} from the stored outputs under the current rule (no GPU run); "
                           f"the original verdicts stay in summary.txt"
@@ -1091,6 +1238,9 @@ def main():
     ap.add_argument("--solar", default=",".join(SOLAR_NODES + SOLAR_OTHER),
                     help="Solar L40S nodes to probe ('' = none); SOLAR_OTHER ones are pinned")
     ap.add_argument("--plan", action="store_true", help="probe and print the plan, run nothing")
+    ap.add_argument("--evict_preemptible", action="store_true",
+                    help=f"count what {PREEMPTIBLE_PREFIX}* jobs hold on our own L40S nodes as free (Slurm preempts "
+                         "them for us); our nodes with nothing free or evictable are excluded")
     a = ap.parse_args()
     a.admit, a.rev_sha = None, None
     if a.rescore:

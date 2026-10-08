@@ -119,9 +119,14 @@ flock -u 8
 
 # ---- tasks: "gpu|name|kind|dest|args..." ----
 TASKS=()
+declare -A TREE_OF   # task -> its own tree (the 5th field of a task line: a pre-refactor control)
 if [ -n "$TASKFILE" ]; then
-  while read -r g name kind shas; do
+  while read -r g name kind shas tree; do
     [ -n "${g:-}" ] || continue
+    if [ -n "${tree:-}" ]; then
+      [ -d "$H/trees/$tree" ] || die "task $name: no tree $H/trees/$tree"
+      TREE_OF[$name]=$H/trees/$tree
+    fi
     case $kind in
       paper)   TASKS+=("$g|$name|gate|$OUT/$name|$PAPER_CKPT|$H/$shas") ;;
       release) TASKS+=("$g|$name|gate|$OUT/$name|$REL_CKPT|$RROOT/release_test20.txt|$RROOT|$RROOT/df_lightgenbench.parquet") ;;
@@ -156,7 +161,7 @@ run_queue() {  # gpu: this GPU's tasks one after another; one "<name> exit=<rc> 
     [ "$g" = "$gq" ] || continue
     say "launch $name on gpu $g"; s=$(date +%s)
     if [ "$kind" = gate ]; then
-      CUDA_VISIBLE_DEVICES=$g bash "$GT/gate-det.sh" "$TREE" "$dest" "$a1" "$a2" ${a3:+"$a3"} ${a4:+"$a4"} > "$OUT/logs/$name.log" 2>&1
+      CUDA_VISIBLE_DEVICES=$g bash "$GT/gate-det.sh" "${TREE_OF[$name]:-$TREE}" "$dest" "$a1" "$a2" ${a3:+"$a3"} ${a4:+"$a4"} > "$OUT/logs/$name.log" 2>&1
     else
       CUDA_VISIBLE_DEVICES=$g bash "$GT/train-check.sh" "$TREE" "$dest" "$a1" "$REL_CKPT" > "$OUT/logs/$name.log" 2>&1
     fi

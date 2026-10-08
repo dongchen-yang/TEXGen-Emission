@@ -48,7 +48,9 @@ the code behind the paper and release runs, generic entry points for LightgenBen
   Training check: every recorded value within its envelope, the structure (step order, batch ids,
   keys, pickled classes) exact. A result outside is rerun once on another GPU of that type, never the
   one it ran on (on Solar another node), before it counts as failed; with no such GPU free it stays
-  unresolved. Both runs are reported (`fanout.py` does this; step 7b).
+  unresolved. A paper piece outside also runs as `pre-refactor` on the same shapes in the same order
+  (output depends on the shapes before it in the process) and passes if within the tolerance of
+  that control (Dongchen 2026-10-08). Every run is reported (`fanout.py` does this; step 7b).
 - Run checks in parallel across our machines (workstation, lab 4090s, Solar, Alliance; the
   compute-access skill): split the full gate by shape list, run a training check's before, after and
   noise runs at once, prepare the next step while checks run (commit it only after the step before

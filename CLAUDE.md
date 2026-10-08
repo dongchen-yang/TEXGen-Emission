@@ -65,7 +65,12 @@ differs by at most 1/255, on at most 0.5% of the image's channel values (H × W 
 noise and passes; any other shape must lie within the envelope (per measure, the largest difference
 between any two envelope runs); IoU/MAE/PSNR deltas are reported only. Training check: every
 recorded value within its envelope, the structure exact. Anything outside is rerun once on another
-GPU of the type, never the one it ran on; `missing` must be 0. Why: two runs of unchanged code do not
+GPU of the type, never the one it ran on; `missing` must be 0. A paper piece outside also gets a
+control: tag `pre-refactor` on the same shapes in the same order on that GPU type; the piece passes
+if a run of it is within the tolerance of the control. Why: a shape's output can depend on the shapes
+run before it in the process, so a piece that starts mid-list can sit 1/255 off a baseline that ran
+all 204 in one order (59 shapes of 8a did, byte-identical to `pre-refactor` run the same way). And
+two runs of unchanged code do not
 always agree. A process now and then gives a second output, at most 1/255 apart on about 0.1% of the
 values (worst shape seen: 0.67%, which now meets the envelope). That was seen with the 8a code on
 cs-venus-15 and once on the workstation; L40S resume has two outcomes (loss within 1.2e-4). Every
@@ -83,8 +88,13 @@ other envelope of `pre-refactor` is zero. A +1/255 shift of the emission of 5 re
   training checks beside it, compares, and prints one verdict: exit 0 PASS, 1 FAIL, 2 INCOMPLETE
   (with the command that finishes it), 3 NOTHING_FREE. A task outside is rerun once on another lab
   host or, on Solar, another node (`--exclude=<first node>` on ours, or a theia-lab node); with none
-  free, or if the rerun lands on the first host anyway, it stays UNRESOLVED (INCOMPLETE).
-  `--rescore <C/fanout/label>` re-compares a finished run's stored outputs under the current rule (no
+  free, or if the rerun lands on the first host anyway, it stays UNRESOLVED (INCOMPLETE); a paper
+  piece's control (see the pass rule) runs beside the rerun, on any free GPU of the type.
+  `--evict_preemptible` also counts GPUs held by `preempt_me_*` jobs on our L40S nodes as free (other
+  labs' jobs of that name ask to be preempted), but only on a node where no other lab's ordinary job
+  runs, since Slurm picks its victim by priority, not by name. That job is pinned there with `-w` and
+  given 3 min to start while its victim stops; every other job of ours stays off our nodes except those
+  with GPUs free outright. `--rescore <C/fanout/label>` re-compares a finished run's stored outputs under the current rule (no
   GPU) and judges completeness against the request `summary.json` keeps; a summary from before
   2026-10-07 lacks it and needs `--checks` (and `--paper_shas`) restated from its log's first line.
   `--stage <host>` then `--qualify <host>` admit a new lab 4090 (every shape IDENTICAL).
