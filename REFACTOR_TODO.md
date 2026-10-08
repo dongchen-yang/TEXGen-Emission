@@ -20,7 +20,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 11. Render-only data in our own code (done in 8a)
 - [x] 12. The memory tracker
 - [x] 13. `launch.py`
-- [ ] 14. Environment files
+- [x] 14. Environment files
 - [ ] 15. Release layer: generic entry points for LightgenBench users
 - [ ] 16. Docs
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
@@ -335,22 +335,24 @@ fix and shutdown handlers (the release run used each; their comments record why)
 
 ### 14. Environment files
 
-- [ ] `requirements.txt` (upstream's list plus three pins, no torch line) and `requirements_125.txt`
+- [x] `requirements.txt` (upstream's list plus three pins, no torch line) and `requirements_125.txt`
   (torch cu126 next to cu118 xformers and spconv): one file that matches what runs.
-- [ ] Not imported by live code: xformers, open3d, pointops, torchdyn, torch-geometric.
-- [ ] The envs that run: the workstation `texgen` (copied to star2 `~/envs/texgen` and the lab 4090s,
+- [x] Not imported by live code: xformers, open3d, pointops, torchdyn, torch-geometric.
+- [x] The envs that run: the workstation `texgen` (copied to star2 `~/envs/texgen` and the lab 4090s,
   packed as `texgen_env.tar.gz` in jupiter `solar_texgen_stage/`); `texgen-bw` on cs-venus-05/19,
   where the paper run trained (recipe on branch `texgen-74k-v2-venus05`,
   `scripts/star2/bootstrap_texgen_bw.sh`); the fir venv plus pin overlay, where the release run
   trained (`../docs/status/checkpoints.md:1637-1660`).
-- [ ] The invariant: the four conditioning pins (transformers 4.28.1, diffusers 0.28.0,
+- [x] The invariant: the four conditioning pins (transformers 4.28.1, diffusers 0.28.0,
   huggingface_hub 0.25.2, tokenizers 0.13.3).
-- [ ] If a dependency goes, update the import probes: `scripts/internal/fir/train_lightgenbench_alpha_fir.sh:220`,
+- [x] If a dependency goes, update the import probes: `scripts/internal/fir/train_lightgenbench_alpha_fir.sh:220`,
   `../evaluation/newdata_eval/sweeps/star2/texgen_worker.sbatch`.
 
 **Instructions:**
 
-**Result:**
+**Result:** One `requirements.txt`: what the code imports at the `texgen` env's versions, the four
+pins required, torch/CUDA extensions per GPU; xformers, open3d, pointops, torchdyn, torch-geometric
+dropped; `requirements_125.txt` deleted; the three envs in CLAUDE.md. No probe imports a dropped one.
 
 ### 15. Release layer: generic entry points for LightgenBench users
 

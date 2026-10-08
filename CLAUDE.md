@@ -15,7 +15,13 @@ overfit10 / sweep configs and stale docs were deleted 2026-09-29; git history ke
 `pre-trim-2026-09-16`).
 
 Upstream README's `configs/texgen_test.yaml` inference command is broken in this fork (config deleted in
-39c0452). `requirements_125.txt` is the fork-authoritative requirements file for the `texgen` env.
+39c0452). `requirements.txt` lists what the code imports, at the versions of the `texgen` env (torch
+2.1.0 + CUDA 11.8, Python 3.10); the four conditioning pins in it (transformers 4.28.1, diffusers 0.28.0,
+huggingface_hub 0.25.2, omegaconf 2.3.0) are required. Envs that ran this code: the workstation
+`texgen` (copied to star2 `~/envs/texgen` and the lab 4090s; the checks run in it), `texgen-bw` on
+cs-venus-05 (torch 2.9.1 + CUDA 12.8; the paper run trained there; recipe
+`scripts/star2/bootstrap_texgen_bw.sh` on branch `texgen-74k-v2-venus05`), and the fir venv plus a pin
+overlay (torch 2.9.0 + CUDA 12.6; the release run trained there; `../docs/status/checkpoints.md`).
 
 ## Commands
 

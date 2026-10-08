@@ -1,25 +1,46 @@
+# What the paper and release code imports (spuv/, launch.py, inference_specific_samples.py, scripts/).
+# Versions are the ones the checks run with: the workstation env `texgen`, Python 3.10, torch 2.1.0 + CUDA
+# 11.8 on an RTX 4090. The paper run trained with torch 2.9.1 + CUDA 12.8 (RTX PRO 6000 Blackwell), the
+# release run with torch 2.9.0 + CUDA 12.6 (H100); both with the four pins below.
+#
+# Install torch and torchvision first, from the index of your CUDA version, for example
+#   pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
+# then this file. torch-scatter must match the torch build; torchsparse, spconv and nvdiffrast are
+# compiled for the GPU (set TORCH_CUDA_ARCH_LIST to its architecture).
+
+# The conditioning stack (CLIP image and text encoders, diffusers' schedulers) is version-sensitive:
+# these four are required exactly (tokenizers comes with transformers as 0.13.x). The paper and
+# release runs used them as written; the check env has huggingface_hub 0.25.0.
 transformers==4.28.1
 diffusers==0.28.0
+huggingface_hub==0.25.2
 omegaconf==2.3.0
-xformers==0.0.22.post7+cu118 --index-url https://download.pytorch.org/whl/cu118
-accelerate==0.24.1
-safetensors
-bitsandbytes==0.42.0
-wandb
-jaxtyping
-typeguard
-Pillow
-matplotlib
-opencv-python==4.9.0.80
-imageio
-torchdyn
-lpips
-torch-geometric
-git+https://github.com/Pointcept/Pointcept.git#subdirectory=libs/pointops
-spconv-cu118
-open3d
-openexr
-trimesh
-git+https://github.com/NVlabs/nvdiffrast.git
-git+https://github.com/mit-han-lab/torchsparse.git
-flash-attn==2.7.3 --no-build-isolation
+
+pytorch-lightning==2.5.0.post0
+torch-scatter==2.1.2
+spconv-cu118==2.3.8          # the spconv build matching your CUDA (e.g. spconv-cu120 for 12.x)
+git+https://github.com/mit-han-lab/torchsparse.git        # 2.1.0
+git+https://github.com/NVlabs/nvdiffrast.git              # 0.3.3
+timm==1.0.14
+einops==0.8.0
+addict==2.4.0
+lpips==0.1.4
+torchmetrics==1.6.1
+numpy==1.25.0
+pandas==2.2.3
+pyarrow==22.0.0
+pillow==11.1.0
+opencv-python==4.11.0.86
+imageio==2.37.0
+matplotlib==3.10.0
+trimesh==4.6.0
+tqdm==4.67.1
+packaging==24.2
+jaxtyping==0.2.37
+typeguard==4.4.1
+wandb==0.24.0                 # with --wandb
+
+# Optional:
+#   flash-attn==2.7.3   the attention fast path; our results use TEXGEN_ENABLE_FLASH=0 (the dense
+#                       branch), which is required to reproduce them
+#   bitsandbytes        only for the Adam8bit / AdamW8bit optimizers, which no config here uses
