@@ -30,8 +30,8 @@
 #     launcher's pattern). EMA needs no change: LitEma updates once per micro-batch, but its decay is
 #     min(0.9999, (1+n)/(10+n)) and the cap never binds in this run (n < 89,990), so two
 #     updates per optimizer step give 1 - 9/(5+s) where the paper run had 1 - 9/(10+s).
-#     The config keeps batch_size 32, which is right for a 96 GB card; this launcher
-#     overrides it on the command line.
+#     The config carries the same two values; this launcher still passes them on the
+#     command line.
 #
 # Usage (runs from the workstation OR from fir; it submits either way):
 #   # probe first — separate output dir, so auto_resume can never find it later:
@@ -246,6 +246,7 @@ echo "[data] all \$(( 2 * ${N_TARS} )) archives present on /scratch"
 
 # ---- stage into \$SLURM_TMPDIR ---------------------------------------------------------
 D=\${SLURM_TMPDIR}/lightgen/data
+export LIGHTGENBENCH_DATA=\$D   # the config's data paths read it
 ROOT=\$D/texgen_root
 mkdir -p "\$ROOT/thumbnails"
 

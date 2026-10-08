@@ -21,7 +21,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 12. The memory tracker
 - [x] 13. `launch.py`
 - [x] 14. Environment files
-- [ ] 15. Release layer: generic entry points for LightgenBench users
+- [x] 15. Release layer: generic entry points for LightgenBench users
 - [ ] 16. Docs
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
@@ -359,16 +359,28 @@ dropped; `requirements_125.txt` deleted; the three envs in CLAUDE.md. No probe i
 The code will be published for LightgenBench users to train and run. No user or cluster paths in
 this layer. Needs step 10; its README commands are written in step 16.
 
-- [ ] `scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_root>`: the generic half of
+- [x] `scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_root>`: the generic half of
   `scripts/internal/fir/stage_hf.sh` (untar the Hugging Face release into `<data_root>/<uuid>/somage.npz`
   and `thumbnails/<uuid>.png`), then `build_index.py`.
-- [ ] The release config carries the recipe values (batch 16 × accumulate 2) and says that
+- [x] The release config carries the recipe values (batch 16 × accumulate 2) and says that
   `TEXGEN_ENABLE_FLASH=0` and the four conditioning pins are required.
-- [ ] The internal fir launchers stay as they are.
+- [x] The internal fir launchers stay as they are.
 
 **Instructions:**
+- Decided: the script checks the download against `checksums.sha256` first, unpacks only the tars
+  it checked, and writes `<data_dir>/texgen_root/<uuid>/somage.npz`,
+  `texgen_root/thumbnails/<uuid>.png` and the index beside it. The release config reads that
+  directory from `LIGHTGENBENCH_DATA` alone (omegaconf 2.3.0 resolves a nested `oc.env` default
+  even when the variable is set, so a `$SLURM_TMPDIR` fallback fails without SLURM); the fir
+  launcher gains one line exporting it, its only change besides comments.
+- Decided: the config names no cluster path: `exp_root_dir` and `checkpoint.dirpath` go (defaults
+  `outputs/` and `<trial_dir>/ckpts`); the fir launcher passes both, as before.
+- Decided: the training check keeps one micro-batch per step (`accumulate_grad_batches: 1` in
+  `traincheck.yaml`), as its baselines ran; the release config now says 2.
 
-**Result:**
+**Result:** `prepare_lightgenbench.sh` run on an 826-shape slice of the real release: index check
+OK, 8 npz and 8 thumbnails byte-identical to the check root. The config resolves with only
+`LIGHTGENBENCH_DATA` set and raises without it; fresh and resume IDENTICAL against `pre-refactor`.
 
 ### 16. Docs
 

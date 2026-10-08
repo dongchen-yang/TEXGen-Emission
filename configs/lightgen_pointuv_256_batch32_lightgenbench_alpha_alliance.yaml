@@ -3,14 +3,17 @@
 #
 # THIS IS A DATA PORT OF lightgen_pointuv_256_batch32_emissive_74k_v2_alpha_fir_agentic.yaml,
 # the fir port of the paper run texgen_alpha_74k_v2_agentic. The code is the paper run's,
-# unchanged. It differs from that file ONLY in what it reads and what the run is called:
+# unchanged. It differs from that file ONLY in:
 #   1. tag                                 -> texgen_alpha_lightgenbench_v1
-#   2. data_root / parquet / *_indices     -> the staged release (see the data block)
-#   3. checkpoint.dirpath                  -> a new directory
+#   2. data_root / parquet / *_indices     -> the prepared release (see the data block)
+#   3. exp_root_dir, checkpoint.dirpath    -> not set here (see SITE)
 #   4. the wandb block
-# EVERY training-relevant value is byte-identical: seed 42, per-GPU batch 32 x 4 GPUs =
-# global 128, in_channels 13, use_alpha, LR 5e-4 / WD 0.01, T_max 34,380, max_epochs 125,
-# precision bf16-mixed, save_top_k -1, every_n_epochs 5, num_workers 4.
+#   5. per-GPU batch 32 -> micro-batch 16 x accumulate_grad_batches 2, as the release run
+#      trained (per-GPU 32 runs out of memory on an 80 GB H100 with this data). The global
+#      batch stays 128, but EMA updates once per micro-batch, so twice per optimizer step.
+# EVERY other training-relevant value is byte-identical: seed 42, in_channels 13, use_alpha,
+# LR 5e-4 / WD 0.01, T_max 34,380, max_epochs 125, precision bf16-mixed, save_top_k -1,
+# every_n_epochs 5, num_workers 4.
 #
 # WHAT THE NEW DATA CHANGES, none of it in this file's values:
 #   * train is 36,426 shapes, not 36,255, so an epoch is 285 steps, not 284, and the run
@@ -20,10 +23,13 @@
 #     not sit in one table with the paper's rows.
 #   * alpha is a key inside each npz, which the loader reads first; there is no sidecar.
 #
-# SITE: any Alliance cluster with 4 x H100 80 GB. No path in this file names a cluster:
-# the data paths resolve into $SLURM_TMPDIR, and the launcher overrides exp_root_dir and
-# checkpoint.dirpath on the command line. Launcher: scripts/internal/fir/train_lightgenbench_alpha_fir.sh.
-# TEXGEN_ENABLE_FLASH=0 is set by the launcher, as for every arm of the paper.
+# SITE: any machine with 4 x H100 80 GB. No path in this file names a cluster: the data paths
+# read $LIGHTGENBENCH_DATA, and outputs go to outputs/<name>/<tag>/ (checkpoints in its ckpts/;
+# one GPU adds @<time> to the tag) unless exp_root_dir and checkpoint.dirpath are passed on the
+# command line, as the fir launcher does: scripts/internal/fir/train_lightgenbench_alpha_fir.sh.
+# REQUIRED to reproduce: TEXGEN_ENABLE_FLASH=0 in the environment (the launcher sets it, as for
+# every arm of the paper) and the four conditioning pins of requirements.txt (transformers 4.28.1,
+# diffusers 0.28.0, huggingface_hub 0.25.2, omegaconf 2.3.0).
 #
 # ---- inherited from the alpha baseline config, unchanged ----
 #
@@ -38,16 +44,16 @@
 #
 name: lightgen
 tag: "texgen_alpha_lightgenbench_v1"
-exp_root_dir: "/scratch/dya78/lightgen/texgen_runs"
 seed: 42
 
 # Resume on requeue / job restart.
 auto_resume: true
 
-# Data: 36,426 train / 200 val / 200 test, the LightgenBench release. The data paths
-# resolve into $SLURM_TMPDIR, which is node-local, outside the inode quota, and WIPED AT
-# JOB END — so the launcher unpacks the release's atlas and thumbnail tars (~75 GB) from
-# /scratch at the start of every segment, and checkpoints go to /scratch instead.
+# Data: 36,426 train / 200 val / 200 test, the LightgenBench release, laid out under
+# $LIGHTGENBENCH_DATA by scripts/lightgenbench/prepare_lightgenbench.sh. The fir launcher points
+# it into $SLURM_TMPDIR, which is node-local, outside the inode quota, and WIPED AT JOB END — so
+# it unpacks the release's atlas and thumbnail tars (~75 GB) from /scratch at the start of every
+# segment, and checkpoints go to /scratch instead.
 #   - texgen_root/<uuid>/somage.npz      (the release's <uuid>/atlas.npz, renamed as it
 #     is unpacked; same keys and encoding as somage.npz, plus alpha)
 #   - texgen_root/thumbnails/<uuid>.png  (CLIP conditioning; a MISSING file
@@ -58,10 +64,11 @@ auto_resume: true
 # at the start of every segment, and its --check proves the indices select those uuids.
 data_cls: spuv.data.mesh_uv.ObjaverseDataModule
 data:
-  # ${oc.env:SLURM_TMPDIR} is resolved by OmegaConf at load time (omegaconf 2.3.0 on fir).
-  # Outside a SLURM job this raises rather than silently pointing somewhere wrong.
-  data_root: "${oc.env:SLURM_TMPDIR}/lightgen/data/texgen_root"
-  parquet_file: "${oc.env:SLURM_TMPDIR}/lightgen/data/df_lightgenbench.parquet"
+  # $LIGHTGENBENCH_DATA: the data directory scripts/lightgenbench/prepare_lightgenbench.sh writes
+  # (the fir launcher sets it to its staging dir, $SLURM_TMPDIR/lightgen/data). Resolved by
+  # OmegaConf at load time; unset, this raises rather than silently pointing somewhere wrong.
+  data_root: "${oc.env:LIGHTGENBENCH_DATA}/texgen_root"
+  parquet_file: "${oc.env:LIGHTGENBENCH_DATA}/df_lightgenbench.parquet"
   scene_list: ""
   eval_scene_list: ""
   repeat: 1
@@ -76,26 +83,21 @@ data:
   # A missing npz does not fail loudly: __getitem__ catches, returns None, and collate_fn
   # drops it — a split would silently shrink. The launcher therefore counts the unpacked
   # files against the split before training. All three keys point at ONE file.
-  train_indices: "${oc.env:SLURM_TMPDIR}/lightgen/data/data_splits_lightgenbench.json"
-  val_indices: "${oc.env:SLURM_TMPDIR}/lightgen/data/data_splits_lightgenbench.json"
-  test_indices: "${oc.env:SLURM_TMPDIR}/lightgen/data/data_splits_lightgenbench.json"
+  train_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
+  val_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
+  test_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
 
   height: 256
   width: 256
   uv_height: 256
   uv_width: 256
-  batch_size: 32         # per-GPU; 1 node x 4 Pro 6000 = 4 ranks -> global 128
+  batch_size: 16         # per-GPU micro-batch x trainer.accumulate_grad_batches 2 x 4 GPUs -> global 128
+                         # (the release run, 4 x H100 80 GB; per-GPU 32 runs out of memory there on this data)
   eval_batch_size: 16    # global 64
-  # ⚠️ H100 IS 80 GB, NOT 96 GB. The peak below was measured on a 96 GB Blackwell Max-Q;
-  # 69.23 GB leaves ~10 GB of headroom on an H100 rather than ~26. The launcher runs a
-  # short probe first for exactly this reason. If it OOMs, do NOT quietly drop per-GPU
-  # batch — that breaks global batch 128; use the launcher's BS/NUM_GPUS guard instead.
-  # per-GPU 32 CONFIRMED BY MEASUREMENT on cs-venus-05 (2026-07-29, 4 training steps
-  # on one RTX PRO 6000 Blackwell Max-Q, 97,887 MiB):
-  #   fit_start        allocated  6.64 GB
-  #   before_backward  allocated 54.06 GB, free 40.91 GB
-  #   epoch_end        PEAK      69.23 GB  -> ~26 GB headroom, no OOM
-  # So this matches the reference run's per-GPU batch exactly, with no accumulation.
+  # Memory, measured: per-GPU 32 on the paper data peaked at 69.23 GB (cs-venus-05, 2026-07-29,
+  # one 96 GB RTX PRO 6000 Blackwell Max-Q). On this data per-GPU 32 peaked at 76.15 GB and ran
+  # out of memory on an 80 GB H100 at step ~57 (fir job 60564907, 2026-09-19), hence micro-batch
+  # 16 x accumulate 2. When changing either, keep the global batch at 128.
   #
   # Do NOT re-derive this from the H100 table in TEXGen/CLAUDE.md (static ~14 GB +
   # 1.37 GB/sample): that model underestimates on the torch-2.9 stack — it predicted
@@ -205,6 +207,8 @@ trainer:
   # its step 35,500). That is not eta_min, but it is ~200x below base LR 5e-4. Do not
   # restate this as "at eta_min". SCORE AT epoch 124 / step 35,625.
   max_epochs: 125
+  accumulate_grad_batches: 2    # with data.batch_size 16 on 4 GPUs: global batch 128 (Lightning counts
+                                # optimizer steps, so steps/epoch, T_max and max_epochs keep their meaning)
   check_val_every_n_epoch: 1    # 285 steps/epoch at global batch 128
   num_sanity_val_steps: 2
   precision: bf16-mixed
@@ -213,12 +217,11 @@ trainer:
   log_every_n_steps: 50
 
 checkpoint:
-  # A NEW directory, and that is load-bearing: auto_resume globs this path for a
-  # last*.ckpt, so pointing here at another run's dirpath would silently resume that run
-  # instead of training this one. The launcher overrides this value per cluster.
-  # ON /scratch, NOT $SLURM_TMPDIR: TMPDIR is wiped at job end, so a checkpoint written
-  # there would vanish on every requeue and auto_resume would silently cold-start.
-  dirpath: "/scratch/dya78/lightgen/texgen_runs/output_lightgenbench_alpha_v1/"
+  # No dirpath here: checkpoints go to <trial_dir>/ckpts. auto_resume globs that directory for a
+  # last*.ckpt, and with several GPUs the trial dir has no timestamp (outputs/<name>/<tag>), so a
+  # rerun with the same tag resumes the earlier run: change tag (or pass a NEW checkpoint.dirpath)
+  # for a new run. The directory must outlive the job (the launcher uses /scratch: $SLURM_TMPDIR is
+  # wiped at job end, so auto_resume would silently cold-start).
   save_last: true
   # -1 = keep EVERY scheduled save, unconditionally.
   #

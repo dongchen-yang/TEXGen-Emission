@@ -23,6 +23,7 @@ data:
 trainer:
   max_epochs: 2          # 32 steps; validation after each epoch, then trainer.test (launch.py)
   log_every_n_steps: 1
+  accumulate_grad_batches: 1   # one micro-batch per step, as the baselines ran (the release config has 2)
 
 checkpoint:
   dirpath: ${oc.env:TRAINCHECK_OUT}/ckpts
