@@ -15,7 +15,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 7. Check setup: the training check and the noise baselines (no code change)
 - [x] 7b. Release checks on Hugging Face data, and a fan-out driver
 - [x] 8. Fold our modules into upstream's originals
-- [ ] 9. Coverage run (no code change)
+- [x] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [x] 11. Render-only data in our own code (done in 8a)
 - [ ] 12. The memory tracker
@@ -277,7 +277,10 @@ the lines that never run. "Never ran" is not "dead" for the flash branch or the 
 
 **Instructions:**
 
-**Result:**
+**Result:** `scripts/internal/gate/coverage.sh` (fresh, resume, 5 paper + 5 release shapes) at `17d0f3e`:
+48% of 6,251 lines ran; report `C/coverage/step9-20261008-073600/report.txt`. Never imported: upstream's
+`models/{camera,isosurface,networks,timestep}.py`, `utils/rasterize.py` (D9: kept). Ours not run: the wandb
+logging (`texgen_train.py:89-152`, `launch.py:264-445`), loss branches off in the recipe (D6: kept).
 
 ### 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 
