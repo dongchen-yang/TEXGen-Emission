@@ -19,7 +19,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [x] 11. Render-only data in our own code (done in 8a)
 - [x] 12. The memory tracker
-- [ ] 13. `launch.py`
+- [x] 13. `launch.py`
 - [ ] 14. Environment files
 - [ ] 15. Release layer: generic entry points for LightgenBench users
 - [ ] 16. Docs
@@ -329,7 +329,9 @@ stays; any change here changes how training runs behave.
 
 **Instructions:**
 
-**Result:**
+**Result:** Kept: the `torch.load` patch, auto-resume, the wandb restore, cache cleanup, x-axis
+fix and shutdown handlers (the release run used each; their comments record why). Removed: the
+`add_safe_globals` block (inert: the patch forces `weights_only=False`). Fresh and resume IDENTICAL.
 
 ### 14. Environment files
 

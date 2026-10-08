@@ -86,22 +86,6 @@ def main(args, extras) -> None:
     from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
     from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger, WandbLogger
     from pytorch_lightning.utilities.rank_zero import rank_zero_only
-    
-    # Register OmegaConf classes as safe globals for PyTorch 2.6+ serialization
-    # This allows loading checkpoints that contain OmegaConf configuration objects
-    try:
-        import omegaconf
-        torch.serialization.add_safe_globals([
-            omegaconf.listconfig.ListConfig,
-            omegaconf.dictconfig.DictConfig,
-            omegaconf.nodes.StringNode,
-            omegaconf.nodes.IntegerNode,
-            omegaconf.nodes.FloatNode,
-            omegaconf.nodes.BooleanNode,
-        ])
-    except Exception as e:
-        # Fallback for older PyTorch versions that don't have add_safe_globals
-        pass
 
     if args.typecheck:
         from jaxtyping import install_import_hook
