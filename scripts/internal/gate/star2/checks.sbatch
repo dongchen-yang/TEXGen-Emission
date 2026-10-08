@@ -4,19 +4,19 @@
 # type (REFACTOR_TODO.md, How we work). fanout.py (one directory up) writes, stages and submits this
 # file for a check; by hand it serves baselines and noise runs.
 #
-# Staging (once per node, flock'd, markers): the paper gate data (jupiter solar_texgen_stage/eval_local,
-# checked equal to the workstation's atlas_root for all 204 test shapes on 2026-10-06) and both
-# checkpoints with their configs (sha256-checked) come from jupiter (read-only) onto the node's
-# /localscratch/dya78/refactor_checks. The release check root (make_check_root.py, built from the
-# Hugging Face release on the workstation) comes from the shared $HOME and is checked against its
-# MANIFEST.sha256 on every run. On a node that is not ours (not in __OWN_NODES__, e.g. theia-lab's
-# cs-venus-18/20), the job deletes the staging and the run outputs there when it ends (~30 GB), unless
+# Staging: both checkpoints with their configs (sha256-checked) come from jupiter (read-only) onto the
+# node's /localscratch/dya78/refactor_checks once per node (flock'd, markers). The paper gate root
+# (make_paper_root.py: the paper-era test bake, alpha inside each npz) and the release check root
+# (make_check_root.py, built from the Hugging Face release), both built on the workstation, come from
+# the shared $HOME and are checked against their MANIFEST.sha256 on every run. On a node that is not
+# ours (not in __OWN_NODES__, e.g. theia-lab's cs-venus-18/20), the job deletes the staging and the run outputs there when it ends (~30 GB), unless
 # another checks job is active on the node ($LS/.active). On our nodes they stay for the next run;
 # `fanout.py --solar_clean <node>` lists them and deletes the per-run outputs.
 # The tree under test and this tooling live on the shared $HOME:
 #   rsync -a <tree>/ star2:refactor_checks/trees/<name>/          (e.g. git archive of a commit)
 #   rsync -a --delete scripts/ star2:refactor_checks/tooling/scripts/          (this tooling, repo layout)
 #   rsync -a ../evaluation/newdata_eval/run_texgen_infer.py star2:refactor_checks/tooling/repo/evaluation/newdata_eval/
+#   rsync -a --delete $L/refactor_checks/paper_root/ star2:refactor_checks/paper_root/
 #   rsync -a --delete $L/refactor_checks/hf_root/ star2:refactor_checks/hf_root/
 #
 # Submit: never `sbatch --export` on star2. Bake the placeholders with sed, feed sbatch on stdin:
@@ -51,7 +51,7 @@ set -uo pipefail
 TREE_NAME="__TREE__"; LABEL="__LABEL__"; NGPU=__NGPU__; TASKFILE="__TASKS__"
 PAPER_RUNS="__PAPER_RUNS__"; RELEASE_RUNS="__RELEASE_RUNS__"; TRAIN_RUNS="__TRAIN_RUNS__"
 H=$HOME/refactor_checks; TREE=$H/trees/$TREE_NAME; TOOL=$H/tooling; GT=$TOOL/scripts/internal/gate
-LS=/localscratch/dya78/refactor_checks; EL=$LS/eval_local; RROOT=$LS/hf_root
+LS=/localscratch/dya78/refactor_checks; PROOT=$LS/paper_root; RROOT=$LS/hf_root
 JUP=/3dlg-jupiter-project/lightgen; EVIN=$JUP/trellis2_bw/eval_inputs
 OUT=$LS/out/$LABEL; HOUT=$H/out/$LABEL
 PAPER_CKPT=$LS/ckpts/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt
@@ -82,6 +82,7 @@ say "node=$(hostname -s) job=${SLURM_JOB_ID:-} tree=$TREE label=$LABEL gpus=$(nv
 CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
 [ "$CC" = 8.9 ] || die "compute capability $CC; this env runs on sm_89 only (L40S, RTX 6000 Ada)"
 [ -d "$TREE" ] && [ -f "$GT/gate-det.sh" ] && [ -f "$TOOL/repo/evaluation/newdata_eval/run_texgen_infer.py" ] || die "tree or tooling missing under $H"
+[ -f "$H/paper_root/MANIFEST.sha256" ] || die "no paper gate root at $H/paper_root"
 [ -f "$H/hf_root/MANIFEST.sha256" ] || die "no release check root at $H/hf_root"
 [ -z "$TASKFILE" ] || [ -f "$H/$TASKFILE" ] || die "no task file $H/$TASKFILE"
 command -v rsync > /dev/null || die "no rsync on $(hostname -s)"
@@ -97,11 +98,8 @@ export HF_HOME=$EVIN/hf_home HF_HUB_CACHE=$EVIN/hf_home/hub TOKENIZERS_PARALLELI
 export TORCH_HOME=$HOME/torch_home_texgen TORCH_EXTENSIONS_DIR=$HOME/torch_ext_texgen MAX_JOBS=4
 EOF
 
-# ---- staging (once per node; the release check root on every run) ----
+# ---- staging (the checkpoints once per node; both data roots on every run) ----
 exec 8>"$LS/.stage.lock"; flock 8
-if [ ! -f "$EL/.ok" ]; then
-  say "stage: paper gate data"; rm -rf "$EL"; $SYNC "$EVIN/solar_texgen_stage/eval_local/" "$EL/" || die "eval_local copy"; touch "$EL/.ok"
-fi
 stage_ckpt() {  # run file sha256
   local d=$LS/ckpts/$1
   [ -f "$d/ckpts/.ok_$2" ] && return 0
@@ -113,6 +111,7 @@ stage_ckpt() {  # run file sha256
 }
 stage_ckpt texgen_alpha_74k_v2_agentic epoch=124-step=35500.ckpt 2e52305fd352a931f20d03e942b2b4e85665218d198d9e29cfe5c56ab61249f6 || die "paper ckpt"
 stage_ckpt texgen_alpha_lightgenbench_v1 epoch=124-step=35625.ckpt 6c42a311f5925f5bcfd87a1bb68592a76ae71d53ce0efe3c90e880bf8e3892aa || die "release ckpt"
+$SYNC --delete "$H/paper_root/" "$PROOT/" && (cd "$PROOT" && sha256sum -c --quiet MANIFEST.sha256) || die "paper gate root"
 $SYNC --delete "$H/hf_root/" "$RROOT/" && (cd "$RROOT" && sha256sum -c --quiet MANIFEST.sha256) || die "release check root"
 mkdir -p "$LS/.active" && touch "$ACTIVE" || die "active marker"
 flock -u 8
@@ -131,7 +130,7 @@ if [ -n "$TASKFILE" ]; then
     esac
   done < "$H/$TASKFILE"
 else
-  SHAS=$EL/test_agentic_clean.txt
+  SHAS=$PROOT/test_agentic_clean.txt
   for r in $PAPER_RUNS; do
     mkdir -p "$OUT/shas"
     for g in $(seq 0 $((NGPU-1))); do
@@ -149,7 +148,7 @@ else
 fi
 # SLURM_JOB_NAME=bash: Lightning then ignores the Slurm job (as scripts/internal/fir/infer_lightgenbench_fir.sh does)
 # and every task runs single-process exactly as on the workstation.
-export GATE_LOCK=none GATE_ACTIVATE=$ACT GATE_REPO=$TOOL/repo GATE_L=$EL TRAINCHECK_ROOT=$RROOT TRAINCHECK_TMPBASE=/localscratch/dya78/tmp SLURM_JOB_NAME=bash
+export GATE_LOCK=none GATE_ACTIVATE=$ACT GATE_REPO=$TOOL/repo GATE_PAPER_ROOT=$PROOT TRAINCHECK_ROOT=$RROOT TRAINCHECK_TMPBASE=/localscratch/dya78/tmp SLURM_JOB_NAME=bash
 run_queue() {  # gpu: this GPU's tasks one after another; one "<name> exit=<rc> secs=<s> <last log line>" line each
   local gq=$1 t g name kind dest a1 a2 a3 a4 rc s
   for t in "${TASKS[@]}"; do

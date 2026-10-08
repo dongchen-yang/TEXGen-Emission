@@ -4,6 +4,7 @@ set -euo pipefail
 # overrides them (all optional): GATE_LOCK (a lock file, or "none" inside a Slurm job),
 # GATE_ACTIVATE (a script to source that activates the texgen env), GATE_REPO (the parent lightgen
 # checkout holding evaluation/newdata_eval/run_texgen_infer.py), GATE_L (the eval-local dir),
+# GATE_PAPER_ROOT (the paper gate root, default $GATE_L/refactor_checks/paper_root),
 # GATE_LOCK_WAIT (seconds to wait for the lock, default 10800; 0 tries once and exits 7 if held).
 # 3, 4 or 6 arguments: a data root without its parquet would pair it with the paper parquet.
 case $# in 3|4|6) ;; *) echo "usage: gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas_file> [<data_root> <parquet>]]"; exit 2 ;; esac
@@ -19,12 +20,14 @@ fi
 ROOT=${1:?texgen root}; OUT=${2:?out dir}; CKPT=${3:?checkpoint}
 REPO=${GATE_REPO:-/local-scratch/localhome/dya78/code/lightgen}
 L=${GATE_L:-/local-scratch/localhome/dya78/lightgen_eval_local}
+# The paper gate data: the paper-era test bake with alpha inside each npz (make_paper_root.py).
+P=${GATE_PAPER_ROOT:-$L/refactor_checks/paper_root}
 # Optional 4th argument: a shapes list (one sha per line). Default: all 204 test shapes (~24 min);
 # scripts/internal/gate/subset20.txt runs 20 of them (~3 min). Each shape's seed depends only on its sha.
-SHAS=${4:-$L/test_agentic_clean.txt}
-# Optional 5th and 6th: the data root and its parquet. Default: the paper gate data. The release
+SHAS=${4:-$P/test_agentic_clean.txt}
+# Optional 5th and 6th: the data root and its parquet. Default: the paper gate root. The release
 # gate passes the root make_check_root.py builds and its df_lightgenbench.parquet.
-DATA=${5:-$L/atlas_root}; PARQUET=${6:-$L/atlas_root/eval_parquet_test204.parquet}
+DATA=${5:-$P}; PARQUET=${6:-$P/eval_parquet_test204.parquet}
 export TEXGEN_ENABLE_FLASH=0 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 set +u
 if [ -n "${GATE_ACTIVATE:-}" ]; then source "$GATE_ACTIVATE"

@@ -80,7 +80,8 @@ PY = "/localhome/dya78/software/miniconda3/envs/texgen/bin/python"
 ENV_DIR = "/localhome/dya78/software/miniconda3/envs/texgen"
 HOSTPROBE = os.path.expanduser("~/.claude/skills/compute-access/scripts/hostprobe.py")
 JUPITER = "/cs/3dlg-jupiter-project/lightgen/outputs"
-PAPER_SHAS = f"{L}/test_agentic_clean.txt"
+PAPER_ROOT = f"{C}/paper_root"   # the paper gate data, alpha inside each npz (make_paper_root.py)
+PAPER_SHAS = f"{PAPER_ROOT}/test_agentic_clean.txt"
 HF_ROOT = f"{C}/hf_root"
 CKPTS = {"paper": ("texgen_alpha_74k_v2_agentic", "epoch=124-step=35500.ckpt",
                    "2e52305fd352a931f20d03e942b2b4e85665218d198d9e29cfe5c56ab61249f6"),
@@ -167,8 +168,7 @@ def probe_lab(host, need_staged=True):
     ck = h["ckpts"]
     files = [f"{ck}/{run}/ckpts/{f}" for run, f, _ in CKPTS.values()] + \
             [f"{ck}/{run}/configs/parsed.yaml" for run, _, _ in CKPTS.values()] + \
-            [f"{h['repo']}/evaluation/newdata_eval/run_texgen_infer.py", PAPER_SHAS,
-             f"{L}/atlas_root/eval_parquet_test204.parquet"] + ([h["activate"]] if h["activate"] else [])
+            [f"{h['repo']}/evaluation/newdata_eval/run_texgen_infer.py"] + ([h["activate"]] if h["activate"] else [])
     cmd = ("nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader,nounits; echo ---; "
            "nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits; echo ---; "
            + "".join(f"(flock -n {shlex.quote(l)} true 2>/dev/null && echo free) || echo held; " for l in h["locks"])
@@ -337,7 +337,8 @@ class Run:
         return self.tree if LAB[host]["ssh"] is None else f"{C}/trees/{self.tree_name}"
 
     def stage_lab_dispatch(self, host):
-        """The tree, the tooling, the release check root and the fanout dir on a lab host."""
+        """The tree, the tooling, the paper gate root, the release check root and the fanout dir on a lab
+        host; both roots are checked against their MANIFEST.sha256 there."""
         h = LAB[host]
         if h["ssh"] is None:
             return
@@ -347,6 +348,8 @@ class Run:
         rsync(HERE + "/", f"{h['ssh']}:{h['gate']}/", "--delete", "--exclude", "__pycache__")
         rsync(f"{LIGHTGEN}/evaluation/newdata_eval/run_texgen_infer.py",
               f"{h['ssh']}:{h['repo']}/evaluation/newdata_eval/")
+        rsync(PAPER_ROOT + "/", f"{h['ssh']}:{PAPER_ROOT}/", "--delete")
+        on(host, f"cd {PAPER_ROOT} && sha256sum -c --quiet MANIFEST.sha256", timeout=600, check=True)
         rsync(HF_ROOT + "/", f"{h['ssh']}:{HF_ROOT}/", "--delete")
         on(host, f"cd {HF_ROOT} && sha256sum -c --quiet MANIFEST.sha256", timeout=300, check=True)
 
@@ -370,8 +373,8 @@ class Run:
                   'napps=$(printf %s "$apps" | grep -c .)',
                   f'if [ -z "$free" ] || [ "$napps" != 0 ] || [ "$free" -lt {need} ]; then '
                   f'echo "WORKER_GPU_BUSY compute_processes=$napps free_mib=${{free:-?}} need_mib={need}"; exit 7; fi']
-        env = {"GATE_LOCK": "none", "GATE_REPO": h["repo"], "GATE_L": L, "TRAINCHECK_ROOT": R,
-               "CUDA_VISIBLE_DEVICES": "0"}
+        env = {"GATE_LOCK": "none", "GATE_REPO": h["repo"], "GATE_L": L, "GATE_PAPER_ROOT": PAPER_ROOT,
+               "TRAINCHECK_ROOT": R, "CUDA_VISIBLE_DEVICES": "0"}
         if h["activate"]:
             env["GATE_ACTIVATE"] = h["activate"]
         lines.append("export " + " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items()))
@@ -425,6 +428,7 @@ class Run:
         rsync(TEXGEN_REPO + "/scripts/", "star2:refactor_checks/tooling/scripts/", "--delete", "--exclude", "__pycache__")
         rsync(f"{LIGHTGEN}/evaluation/newdata_eval/run_texgen_infer.py",
               "star2:refactor_checks/tooling/repo/evaluation/newdata_eval/")
+        rsync(PAPER_ROOT + "/", "star2:refactor_checks/paper_root/", "--delete")
         rsync(HF_ROOT + "/", "star2:refactor_checks/hf_root/", "--delete")
 
     def submit_solar(self, jobs):
@@ -575,7 +579,7 @@ def tree_from_rev(rev):
 # ---------------------------------------------------------------------------- the commands
 def stage_host(host):
     """Stage a lab 4090 for the checks: the texgen env at the workstation's prefix, an activate
-    script, the paper gate data, both checkpoints from jupiter (sha256-checked), the tooling."""
+    script, the paper gate root, both checkpoints from jupiter (sha256-checked), the tooling."""
     h = LAB[host]
     if h["ssh"] is None:
         sys.exit("the workstation needs no staging")
@@ -597,10 +601,9 @@ def stage_host(host):
                  f"'conda activate {ENV_DIR}' > {act}", check=True)
     rsync(f"{LIGHTGEN}/evaluation/newdata_eval/run_texgen_infer.py", f"{s}:{h['repo']}/evaluation/newdata_eval/")
     rsync(HERE + "/", f"{s}:{h['gate']}/", "--delete", "--exclude", "__pycache__")
-    say("  paper gate data (atlas_root keeps its absolute symlinks into out_eval_gt)")
-    rsync(PAPER_SHAS, f"{s}:{L}/")
-    rsync(f"{L}/out_eval_gt/", f"{s}:{L}/out_eval_gt/")
-    rsync(f"{L}/atlas_root/", f"{s}:{L}/atlas_root/")
+    say("  paper gate root")
+    rsync(PAPER_ROOT + "/", f"{s}:{PAPER_ROOT}/", "--delete")
+    on(host, f"cd {PAPER_ROOT} && sha256sum -c --quiet MANIFEST.sha256", timeout=600, check=True)
     rsync(f"{C}/trees/pre-refactor/", f"{s}:{C}/trees/pre-refactor/", "--delete")
     rsync(HF_ROOT + "/", f"{s}:{HF_ROOT}/", "--delete")
     for run, fname, digest in CKPTS.values():

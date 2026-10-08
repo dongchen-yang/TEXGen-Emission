@@ -53,9 +53,10 @@ python launch.py --config <config.yaml> --gpu 0 --train system.optimizer.args.lr
 ### Checking a code change
 Tooling in `scripts/internal/gate/`; data and run outputs stay outside the repo, in
 `C = /local-scratch/localhome/dya78/lightgen_eval_local/refactor_checks/` (`fanout/<label>/` per
-driver run, `hf_root/` the release check root, `envelopes/` the cached gate envelopes). Compare a run
-only with a baseline from the same GPU type: `baselines.json` lists, per type (RTX 4090, L40S) and
-check, the baseline and at least 4 envelope runs of tag `pre-refactor`.
+driver run, `paper_root/` the paper gate root, `hf_root/` the release check root, `envelopes/` the
+cached gate envelopes). Compare a run only with a baseline from the same GPU type: `baselines.json`
+lists, per type (RTX 4090, L40S) and check, the baseline and at least 4 envelope runs of tag
+`pre-refactor`.
 
 Pass rule (`REFACTOR_TODO.md`, How we work). Gate images, all four files: a shape whose every pixel
 differs by at most 1/255, on at most 0.5% of the image's channel values (H × W × 3, whole image), is
@@ -96,9 +97,10 @@ other envelope of `pre-refactor` is zero. A +1/255 shift of the emission of 5 re
   (theia-lab: all; ours: the per-run outputs `out/<label>` only), through a 1-CPU job that starts only
   on a node with a free CPU, so it evicts nobody.
 - `gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas> [<data_root> <parquet>]]` — deterministic
-  inference, seed 0, on the paper gate data (the paper-era test bake) by default; the release gate
-  passes the release check root and its parquet as the last two arguments. `GATE_LOCK_WAIT=0` tries
-  the 4090 lock once instead of waiting up to 3 h. Writes `<out_dir>/gpu.txt` (host and card).
+  inference, seed 0, on the paper gate root (`C/paper_root`, the paper-era test bake) by default;
+  the release gate passes the release check root and its parquet as the last two arguments.
+  `GATE_LOCK_WAIT=0` tries the 4090 lock once instead of waiting up to 3 h. Writes
+  `<out_dir>/gpu.txt` (host and card).
 - `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--envelope <run> ...
   --envelope_shas <all shapes> --envelope_json <cache>]` — byte identity, pixel differences, the share
   of differing values and the evaluator's IoU, MAE and PSNR per shape (UV texels, not point-sampled),
@@ -116,6 +118,11 @@ other envelope of `pre-refactor` is zero. A +1/255 shift of the emission of 5 re
   (16 train, 2 val, 20 test shapes, `check_root_splits.json`) from the Hugging Face release
   `3dlg-hcvc/LightgenBench` at a pinned revision: six tars, checked against the release's
   `checksums.sha256`, untarred and indexed the release run's way.
+- `make_paper_root.py --out <root>` — the paper gate root from `$L/atlas_root` (read only: its npz,
+  symlinks into `$L/out_eval_gt`, hold no alpha; the `alpha.npy` beside each does): every array of each
+  npz plus `alpha`, checked equal to both sources, for the parquet's 585 rows (204 test, 381 val), with
+  the thumbnails, the parquet, the 204-shape list and a `MANIFEST.sha256`. The loader reads alpha from
+  the npz only.
 - `star2/checks.sbatch` — the checks on one Solar node; `fanout.py` writes, stages and submits it.
 
 Machines:
@@ -206,6 +213,8 @@ color          [H, W, 3]  uint8   — albedo (decoded to [0, 1])
 metal          [H, W, 1]  uint8   — metallic (decoded to [0, 1])
 rough          [H, W, 1]  uint8   — roughness (decoded to [0, 1])
 emission_color [H, W, 3]  uint8   — GT emission (decoded to [0, 1], normalized to [-1, 1])
+alpha          [H, W, 1]  uint8   — glTF opacity (decoded to [0, 1]); always read
+                                    (`use_alpha` is kept only for published configs; false is refused)
 ```
 
 ### Input Channels
