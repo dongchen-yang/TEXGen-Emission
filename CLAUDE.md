@@ -165,18 +165,21 @@ Classes are referenced by string paths in YAML configs. `spuv.find()` resolves t
 ```yaml
 system_cls: spuv.systems.lightgen_system.LightGenSystem
 data_cls: spuv.data.mesh_uv.ObjaverseDataModule
-backbone_cls: spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet
+backbone_cls: spuv.models.sparse_networks.texgen_network.PointUVNet
 image_tokenizer_cls: spuv.models.tokenizers.clip.ClipTokenizer
 ```
-The loader is upstream's `spuv/data/mesh_uv.py`, edited in place; `git diff upstream/main --
-spuv/data/mesh_uv.py` shows what we changed. A config written before that (every published
+The loader (`spuv/data/mesh_uv.py`) and the backbone (`PointUVNet.forward` in
+`spuv/models/sparse_networks/texgen_network.py`) are upstream's, edited in place; `git diff
+upstream/main -- <file>` shows what we changed. A config written before that (every published
 checkpoint's `configs/parsed.yaml`) still names `spuv.data.lightgen_uv.LightGenDataModule` and
-carries `data.use_alpha`: `python scripts/convert_config.py <old.yaml> <new.yaml>` converts it.
+`spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet` and carries `data.use_alpha`:
+`python scripts/convert_config.py <old.yaml> <new.yaml>` converts it.
 Inference reads the config beside the checkpoint (`<run>/ckpts/../configs/parsed.yaml`), so write
 the result into a copy of the run directory.
 
-### Backbone: LightGenPointUVNet
-Modified PointUVNet operating on **pre-baked UV data** (no online rasterization). 5-stage encoder-decoder:
+### Backbone: PointUVNet
+Upstream's PointUVNet, its `forward` edited to take the material maps **pre-baked in UV space**
+instead of baking image features from the mesh (no online rasterization). 5-stage encoder-decoder:
 - Block types: UV, Point-UV (hybrid), UV-DIT (attention)
 - TorchSparse for 3D-aware voxel grouping
 - Skip connections (adaptive)
@@ -405,7 +408,7 @@ Full training checkpoints go to `/scratch/dya78/lightgen/TEXGen/output_emission_
 
 ### ⚠️ `shuffle_orders=True` consumes the CPU RNG at INFERENCE, hundreds of times per shape
 
-`texgen_network.py:621,766` sets `self.shuffle_orders = True` **unconditionally** — not from
+`texgen_network.py:647,792` sets `self.shuffle_orders = True` **unconditionally** — not from
 config, and **not gated on `self.training`** (the only `self.training` guard in that file is
 attention dropout). It reaches `ptv3_model_texgen.py:129,703`:
 
@@ -415,7 +418,7 @@ if shuffle_orders:
 ```
 
 The permutation selects each block's space-filling-curve serialization
-(`order_index = i % len(self.order)`, `texgen_network.py:752`), so it **changes the attention
+(`order_index = i % len(self.order)`, `texgen_network.py:804`), so it **changes the attention
 windows and therefore the output**. The U-Net builds a `down{scale}` for every scale
 (`texgen_network.py:83-95`) **and** an `up{scale}` for all but the last
 (`:101-133`), so `block_type = ["uv","point_uv","uv_dit","uv_dit","uv_dit"]` gives 5

@@ -17,7 +17,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [ ] 8. Fold our modules into upstream's originals
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
-- [ ] 11. Render-only data in our own code
+- [x] 11. Render-only data in our own code (done in 8a)
 - [ ] 12. The memory tracker
 - [ ] 13. `launch.py`
 - [ ] 14. Environment files
@@ -109,10 +109,9 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
    `scripts/internal/fir/infer_lightgenbench_fir.sh:81-84`. Legacy caller:
    `../evaluation/pointsampled/texgen_infer.py` (keep or retire in step 16).
 2. Class paths in each run's `configs/parsed.yaml` (read as `ckpt/../../configs/parsed.yaml`):
-   `spuv.systems.lightgen_system.LightGenSystem`,
-   `spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet`,
-   `spuv.models.tokenizers.clip.ClipTokenizer`; a path we retire is mapped by
-   `scripts/convert_config.py` instead (8a: the loader's). Pickled in the paper checkpoint:
+   `spuv.systems.lightgen_system.LightGenSystem`, `spuv.models.tokenizers.clip.ClipTokenizer`; a
+   path we retire is mapped by `scripts/convert_config.py` instead (8a: the loader's, 8b: the
+   backbone's). Pickled in the paper and release checkpoints, so a converter cannot map them:
    `spuv.systems.lightgen_system.LightGenSystem`, `spuv.systems.texgen_base.LossConfig`.
 3. Every key in the published `parsed.yaml` files stays accepted (`spuv/utils/config.py:151` merges in
    struct mode): keys may stop being read; a key deleted from the dataclasses is dropped by
@@ -233,7 +232,7 @@ our file is deleted and `scripts/convert_config.py` maps its class path in old c
 each, in this order. Needs step 7 first.
 
 - [x] 8a. Data: `lightgen_uv.py` → `mesh_uv.py`. Full gate on all four files plus the training check.
-- [ ] 8b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
+- [x] 8b. Backbone: `LightGenPointUVNet.forward` → `PointUVNet.forward`. Full gate.
 - [ ] 8c. System: `LightGenSystem` → `texgen_test.TEXGenDiffusion` (and `texgen_base.py` where ours
   overrides a method only it defines). Our methods replace upstream's in place (for example
   `prepare_diffusion_data`, `forward`, `prepare_condition_info`, `texgen_test.py:35-182`); every loss
@@ -254,9 +253,11 @@ edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s 
 
 **Result:**
 
-- 8a. Our loader folded into upstream's `spuv/data/mesh_uv.py` (`lightgen_uv.py` deleted);
-  commit `a94fea4`. Verdict: every step-7 check IDENTICAL against `pre-refactor`; PASS again under
-  step 7b's driver and rule (re-scored head run).
+- 8a. Our loader written into upstream's `spuv/data/mesh_uv.py`, `lightgen_uv.py` deleted, old configs
+  through `scripts/convert_config.py`; commits `4b148ce` (docs), `e64db55`. Full gate PASS: 204/204
+  paper (59 matched by their `pre-refactor` control), release, fresh, resume IDENTICAL.
+- 8b. Our forward written into upstream's `PointUVNet.forward`, `lightgen_pointuvnet.py` deleted. Full
+  gate PASS: 204/204 paper (21 matched by their control), release, fresh, resume IDENTICAL.
 
 ### 9. Coverage run (no code change)
 
@@ -275,9 +276,6 @@ the lines that never run. "Never ran" is not "dead" for the flash branch or the 
 
 Keep the `inference_samples(...)` signature and `sample_seed`.
 
-- [x] `mesh_uv.py`'s `data_root` and `parquet_file` defaults are empty and must be set (were
-  workstation paths; done early, Dongchen 2026-10-07).
-
 - [ ] `:84` falls back to the missing `configs/lightgen_pointuv_256_batch32_pretrained.yaml`.
 - [ ] `:96-97` default data root and parquet under `/localhome/dya78/code/lightgen/data/baked_uv`
   (bypassed when the driver passes both).
@@ -293,18 +291,8 @@ Keep the `inference_samples(...)` signature and `sample_seed`.
 
 ### 11. Render-only data in our own code
 
-- [ ] `get_camera_info` (`:439`, called at `:405`, dummy matrices) and the `mesh` dict (`:380-387`):
-  batch keys that `lightgen_system.py:115-116` reads and the backbone ignores; remove them together.
-  After step 8 they sit in `mesh_uv.py` and `texgen_test.py` (line numbers are from before the
-  folds). Only lines of ours with no upstream counterpart go; upstream's lines and upstream methods
-  whose bodies we edited stay (D9), and the `camera_functions` import is upstream's own line in
-  `mesh_uv.py`, so it stays. If nothing purely ours is left, the step is dropped.
-
-Depends on step 9. Full gate plus the training check.
-
-**Instructions:**
-
-**Result:**
+**Result:** Done in 8a: `get_camera_info`, the dummy UV-grid mesh and the `mesh` / `mvp_mtx_cond` batch
+keys are gone from the loader, the system and the backbone; upstream's lines stay (D9).
 
 ### 12. The memory tracker
 
@@ -375,7 +363,9 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
 - [ ] The release commands in the README: single-node training (`python launch.py --config ...
   --gpu 0,1,2,3 --train data.data_root=...`) and inference (`inference_specific_samples.py`) on the
   release test split.
-- [ ] Keep or retire `../evaluation/pointsampled/texgen_infer.py`.
+- [ ] Keep or retire `../evaluation/pointsampled/texgen_infer.py`. Keeping it needs more than its
+  import: its config needs `scripts/convert_config.py`, and its checkpoint is 12-channel (no alpha),
+  which the current code (alpha always read) cannot run.
 
 **Instructions:**
 
@@ -394,7 +384,8 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
   `../AGENTS.md`). The `texgen-v2` worktree moves with the directory.
 - [ ] Parent docs: `../docs/baselines/texgen.md` (the config table `:12-30,48` names deleted configs;
   `:53-61` says the flash switch is only on the branch), `../.claude/rules/texgen.md` (deleted configs
-  in its commands and Losses), `../AGENTS.md:64,212,228`, `../docs/status/refactor.md` (the TEXGen
+  in its commands and Losses; `:38` names the backbone `LightGenPointUVNet`, now upstream's
+  `PointUVNet`), `../AGENTS.md:64,212,228`, `../docs/status/refactor.md` (the TEXGen
   entry); the stale "main has no flash gate" comments in
   `../evaluation/newdata_eval/run_texgen_infer.py:15-18`, `infer_texgen_v2_venus05.sbatch:6`,
   `sweeps/stage_texgen_host.sh:46`.

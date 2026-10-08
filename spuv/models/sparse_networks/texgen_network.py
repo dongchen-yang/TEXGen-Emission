@@ -212,7 +212,6 @@ class PointUVNet(BaseModule):
                 position_map,
                 timestep,
                 clip_embeddings,
-                mesh,
                 image_info,
                 data_normalization,
                 condition_drop,
@@ -225,11 +224,6 @@ class PointUVNet(BaseModule):
         """
         skip_x = x_dense
 
-        cond_image_info = {
-            "rgb": image_info["rgb_cond"],
-            "mvp_mtx": image_info["mvp_mtx_cond"],
-        }
-
         # for cfg
         input_embeddings = []
         condition_drop = condition_drop.unsqueeze(-1)
@@ -237,21 +231,31 @@ class PointUVNet(BaseModule):
             clip_embedding_null = torch.zeros_like(clip_embeddings[i], device=x_dense.device, dtype=x_dense.dtype)
             clip_embedding = condition_drop * clip_embedding_null + (1 - condition_drop) * clip_embeddings[i]
             input_embeddings.append(clip_embedding)
-        tr.start("bake")
-        with torch.no_grad():
-            baked_texture, baked_weights = bake_image_feature_to_uv(self.ctx, mesh, cond_image_info, position_map.permute(0, 2, 3, 1))
-            if data_normalization:
-                baked_texture = (2 * baked_texture - 1).detach()
-            else:
-                baked_texture = baked_texture.detach()
-            baked_weights = baked_weights.detach()
-        tr.end("bake")
 
-        x_concat = torch.cat([x_dense, position_map, baked_texture, baked_weights], dim=1)
+        # The material maps arrive pre-baked in UV space (image_info), so upstream's image-feature
+        # bake (bake_image_feature_to_uv from the mesh and the condition view) is skipped.
+        baked_texture = image_info['baked_texture']  # [B, C, H, W] material properties
+        baked_weights = image_info['baked_weights']  # [B, 1, H, W] occupancy mask
+        if data_normalization:  # the loader decodes the materials to [0, 1]
+            baked_texture = baked_texture * 2.0 - 1.0
+
+        # Input: noisy emission 3, position 3, material (albedo 3, metallic 1, roughness 1[, alpha 1]),
+        # mask 1, and the GT emission mask 1 when use_gt_emission_mask_cond
+        concat_list = [x_dense, position_map, baked_texture, baked_weights]
+        gt_emission_mask = image_info.get('gt_emission_mask', None)
+        if self.cfg.use_gt_emission_mask_cond:
+            assert gt_emission_mask is not None, \
+                "use_gt_emission_mask_cond=true but the batch carries no gt_emission_mask"
+            concat_list.append(gt_emission_mask)
+        x_concat = torch.cat(concat_list, dim=1)
+        assert x_concat.shape[1] == self.cfg.in_channels, (
+            f"assembled input is {x_concat.shape[1]}ch but cfg.in_channels={self.cfg.in_channels}; "
+            f"parts={[t.shape[1] for t in concat_list]}"
+        )
         x_dense = self.input_conv(x_concat) * mask_map
         if torch.isnan(x_dense).any():
-            print("x_dense has NaN values")
-            breakpoint()
+            print("x_dense has NaN values after input_conv")
+            raise ValueError("NaN detected in input processing")
 
         pyramid_features = []
         pyramid_mask = []
@@ -267,7 +271,6 @@ class PointUVNet(BaseModule):
                 position_map,
                 condition_embedding,
                 ctx=self.ctx,
-                mesh=mesh,
                 feature_info=None,
             )
 
@@ -304,7 +307,6 @@ class PointUVNet(BaseModule):
                 position_map,
                 condition_embedding,
                 ctx=self.ctx,
-                mesh=mesh,
                 feature_info=None,
             )
 
@@ -318,9 +320,11 @@ class PointUVNet(BaseModule):
             "baked_weights": baked_weights,
         }
 
+        # The skip adds the albedo channels only (the first 3), which match the output channels
+        baked_albedo = baked_texture[:, :3, :, :]
         if self.cfg.skip_input:
             if self.cfg.skip_type == "baked_texture":
-                return x_output + baked_weights * baked_texture, addition_info
+                return x_output + baked_weights * baked_albedo, addition_info
             elif self.cfg.skip_type == "noise_input":
                 return x_output + skip_x, addition_info
             elif self.cfg.skip_type == "adaptive":
@@ -332,7 +336,7 @@ class PointUVNet(BaseModule):
                 output_scale_map, skip_scale_map = skip_map.chunk(2, dim=1)
 
                 x1 = (1-output_scale_map) * x_output
-                x2 = skip_scale_map * (x0_scale * baked_texture + input_scale * skip_x)
+                x2 = skip_scale_map * (x0_scale * baked_albedo + input_scale * skip_x)
                 x_output = x1 + x2
 
                 addition_info["skip_scale_map"] = skip_scale_map

@@ -131,7 +131,7 @@ class LightGenSystem(TEXGenDiffusion):
         Override forward to work directly in UV space without 3D-to-UV baking.
         Since our data is already in UV space, we pass pre-baked material properties directly.
         
-        This works with both SimpleUVUNet and LightGenPointUVNet.
+        This works with both SimpleUVUNet and PointUVNet.
         """
         mask_map = diffusion_data["mask_map"]
         position_map = diffusion_data["position_map"]
@@ -190,7 +190,7 @@ class LightGenSystem(TEXGenDiffusion):
         elif condition_drop is None:
             condition_drop = torch.zeros(batch_size, device=device)
         
-        # Call the backbone (works with both SimpleUVUNet and LightGenPointUVNet)
+        # Call the backbone (works with both SimpleUVUNet and PointUVNet)
         # For PointUVNet: pass clip_embeddings list
         # For SimpleUVUNet: it expects image_embeddings but doesn't use it, so clip_embeddings works too
         output, addition_info = self.backbone(

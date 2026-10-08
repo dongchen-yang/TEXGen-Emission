@@ -15,6 +15,10 @@ from omegaconf import OmegaConf
 # key -> {old value: new value}
 RENAMED = {
     "data_cls": {"spuv.data.lightgen_uv.LightGenDataModule": "spuv.data.mesh_uv.ObjaverseDataModule"},
+    "system.backbone_cls": {
+        "spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet":
+            "spuv.models.sparse_networks.texgen_network.PointUVNet",
+    },
 }
 # keys the current code no longer has (alpha is always read)
 REMOVED = ["data.use_alpha"]

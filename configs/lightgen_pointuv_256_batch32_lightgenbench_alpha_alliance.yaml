@@ -27,7 +27,7 @@
 #
 # ---- inherited from the alpha baseline config, unchanged ----
 #
-# Input channel order (assembled in lightgen_system.forward + lightgen_pointuvnet.forward):
+# Input channel order (assembled in lightgen_system.forward + texgen_network.PointUVNet.forward):
 #   noisy_emission(3) + position(3) + albedo(3) + metal(1) + rough(1) + ALPHA(1) + mask(1)
 # Alpha rides inside baked_texture (5 -> 6 ch) so it lands before the occupancy mask and
 # gets the same [0,1] -> [-1,1] remap as albedo/metal/rough.
@@ -138,7 +138,7 @@ system:
   image_tokenizer:
     pretrained_model_name_or_path: "lambdalabs/sd-image-variations-diffusers"
 
-  backbone_cls: spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet
+  backbone_cls: spuv.models.sparse_networks.texgen_network.PointUVNet
   backbone:
     in_channels: 13
     out_channels: 3

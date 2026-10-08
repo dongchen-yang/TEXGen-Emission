@@ -190,7 +190,7 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
         #     (lightgen_system.py:247,255) -- discarded, but they advance the stream;
         #   * the initial noise, one CUDA draw (texgen_test.py:506);
         #   * hundreds of CPU torch.randperm calls per shape from shuffle_orders=True
-        #     (texgen_network.py:621,766 -> ptv3_model_texgen.py:129,703). That flag is
+        #     (texgen_network.py:647,792 -> ptv3_model_texgen.py:129,703). That flag is
         #     hardcoded and NOT gated on self.training -- the only self.training guard in
         #     either file is attention dropout -- and the permutation CHANGES THE OUTPUT by
         #     reordering the space-filling-curve serialization the attention windows use.
