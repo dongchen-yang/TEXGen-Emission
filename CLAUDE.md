@@ -57,35 +57,54 @@ driver run, `hf_root/` the release check root, `envelopes/` the cached gate enve
 only with a baseline from the same GPU type: `baselines.json` lists, per type (RTX 4090, L40S) and
 check, the baseline and at least 4 envelope runs of tag `pre-refactor`.
 
-Pass rule (`REFACTOR_TODO.md`, How we work). Gate images, all four files: a per-pixel difference of
-at most 1/255 is noise and passes; a shape that differs by more must lie within the envelope (per
-measure, the largest difference between any two envelope runs); IoU/MAE/PSNR deltas are reported
-only. Training check: every recorded value within its envelope, the structure exact. Anything
-outside is rerun once on another GPU of the type; `missing` must be 0. Why: two runs of unchanged
-code do not always agree. A process now and then gives a second output, at most 1/255 apart. That
-was seen with the 8a code on cs-venus-15 and once on the workstation; L40S resume has two outcomes
-(loss within 1.2e-4). Every other envelope of `pre-refactor` is zero.
+Pass rule (`REFACTOR_TODO.md`, How we work). Gate images, all four files: a shape whose every pixel
+differs by at most 1/255, on at most 0.5% of the image's channel values (H × W × 3, whole image), is
+noise and passes; any other shape must lie within the envelope (per measure, the largest difference
+between any two envelope runs); IoU/MAE/PSNR deltas are reported only. Training check: every
+recorded value within its envelope, the structure exact. Anything outside is rerun once on another
+GPU of the type, never the one it ran on; `missing` must be 0. Why: two runs of unchanged code do not
+always agree. A process now and then gives a second output, at most 1/255 apart on about 0.1% of the
+values (worst shape seen: 0.67%, which now meets the envelope). That was seen with the 8a code on
+cs-venus-15 and once on the workstation; L40S resume has two outcomes (loss within 1.2e-4). Every
+other envelope of `pre-refactor` is zero. A +1/255 shift of the emission of 5 release shapes fails
+(emitting texels only: 0.50–9.4% of the values; every occupied texel: 54–69%); a shift on fewer than
+0.5% of an image's values would still pass.
 
 - `python3 scripts/internal/gate/fanout.py --rev <commit> [--checks paper,release,fresh,resume]
   [--paper_shas <file>] [--plan]` — the one command. It probes the workstation 4090, sp4090, xg4090
   and the Solar L40S nodes once (ours cs-venus-15/16/17 unpinned; theia-lab's cs-venus-18/20 with
   `-w`, where we rank below their owners and cannot evict anyone; every job with `--deadline`, so it
-  starts at once or is cancelled). It sends work only to GPUs that are free right now (a busy GPU, a
-  held lock or a host short of RAM is skipped, never waited on), splits the paper gate over all of
-  them, runs the release gate and both training checks beside it, compares, reruns once what falls
-  outside, and prints one verdict: exit 0 PASS, 1 FAIL, 2 INCOMPLETE (with the command that finishes
-  it), 3 NOTHING_FREE. `--rescore <C/fanout/label>` re-compares a finished run's stored outputs
-  under the current rule (no GPU). `--stage <host>` then `--qualify <host>` admit a new lab 4090.
+  starts at once or is canceled). It sends work only to GPUs that are free right now (a busy GPU, a
+  held lock or a host short of RAM is skipped, never waited on; a lab queue checks its GPU again once
+  it holds the locks), splits the paper gate over all of them, runs the release gate and both
+  training checks beside it, compares, and prints one verdict: exit 0 PASS, 1 FAIL, 2 INCOMPLETE
+  (with the command that finishes it), 3 NOTHING_FREE. A task outside is rerun once on another lab
+  host or, on Solar, another node (`--exclude=<first node>` on ours, or a theia-lab node); with none
+  free, or if the rerun lands on the first host anyway, it stays UNRESOLVED (INCOMPLETE).
+  `--rescore <C/fanout/label>` re-compares a finished run's stored outputs under the current rule (no
+  GPU) and judges completeness against the request `summary.json` keeps; a summary from before
+  2026-10-07 lacks it and needs `--checks` (and `--paper_shas`) restated from its log's first line.
+  `--stage <host>` then `--qualify <host>` admit a new lab 4090 (every shape IDENTICAL).
   Timing: about 13 min on 13 GPUs. Alone on one 4090, the paper gate takes 23 min, the release
   gate 2.5 min, fresh 2 min, resume 1.5 min. An L40S takes about 19 s per paper shape.
+- If the driver dies, its work keeps running. Solar: `ssh star2 "squeue --me -h -o '%i %j %T %N'"`,
+  the jobs named `refactor_checks_<label>_*`, then `scancel <id>`. Lab queues: the process group id is
+  in `C/fanout/<label>/workers/<gpu>.r<round>.pid` on the queue's host; `kill -TERM -- -<pgid>` there.
+- Solar staging: a job deletes its staging and outputs when it ends on a theia-lab node (unless
+  another checks job is active there); on ours they stay (~30 GB per node) for the next run.
+  `fanout.py --solar_clean <node,...> [--plan]` lists our files on those nodes and deletes them
+  (theia-lab: all; ours: the per-run outputs `out/<label>` only), through a 1-CPU job that starts only
+  on a node with a free CPU, so it evicts nobody.
 - `gate-det.sh <texgen_root> <out_dir> <ckpt> [<shas> [<data_root> <parquet>]]` — deterministic
   inference, seed 0, on the paper gate data (the paper-era test bake) by default; the release gate
   passes the release check root and its parquet as the last two arguments. `GATE_LOCK_WAIT=0` tries
   the 4090 lock once instead of waiting up to 3 h. Writes `<out_dir>/gpu.txt` (host and card).
 - `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--envelope <run> ...
-  --envelope_shas <all shapes> --envelope_json <cache>]` — byte identity, pixel differences and the
-  evaluator's IoU, MAE and PSNR per shape (UV texels, not point-sampled), the 1/255 tolerance, then
-  the envelope; verdict IDENTICAL or WITHIN_NOISE passes (exit 0). Without `--b` it prints the envelope.
+  --envelope_shas <all shapes> --envelope_json <cache>]` — byte identity, pixel differences, the share
+  of differing values and the evaluator's IoU, MAE and PSNR per shape (UV texels, not point-sampled),
+  the tolerance (1/255 on at most 0.5% of the values), then the envelope; verdict IDENTICAL or
+  WITHIN_NOISE passes (exit 0). Without `--b` it prints the envelope. The cache is recomputed when a
+  run file changes (path, size, mtime) or its schema is old.
 - `train-check.sh <texgen_root> <out_dir> fresh|resume [<resume_ckpt>]` — the real `launch.py --train`
   on the release check root, batch 1, deterministic, reseeded right before `trainer.fit`, every step
   recorded. fresh: 32 steps from scratch; resume: 17 steps from `<resume_ckpt>` (default the release
@@ -107,7 +126,7 @@ Machines:
 - **The workstation** often has its 62 GB of RAM filled by other sessions, so the probe checks free
   RAM (24 GB, 32 for resume).
 - **The shared Solar `texgen` env** runs on sm_89 only (L40S); `checks.sbatch` refuses other cards. A
-  new node first stages ~30 GB (~2 min).
+  new node first stages ~30 GB (~2 min); a theia-lab node does so on every run.
 - **Alliance clusters** are used only with an open login socket and their own baselines (none yet).
 
 ## Architecture

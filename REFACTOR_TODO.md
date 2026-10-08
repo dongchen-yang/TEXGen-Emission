@@ -40,13 +40,15 @@ the code behind the paper and release runs, generic entry points for LightgenBen
   compute: a push, a parent-repo commit, the merge into `main`, a write to jupiter's shared tree.
   Jobs on our machines for the checks need no go.
 - After each step that touches code the gate must pass; steps that touch training code also need the
-  training check; `missing` must be 0. Gate images (all four files): a per-pixel difference of at
-  most 1/255 is noise and passes; a shape that differs by more must lie within the envelope, the
-  largest difference per measure (pixels, IoU/MAE/PSNR) between any two of at least 4 runs of tag
-  `pre-refactor` on the same GPU type (R20). IoU/MAE/PSNR deltas are reported but do not fail a shape
-  within 1/255. Training check: every recorded value within its envelope, the structure (step order,
-  batch ids, keys, pickled classes) exact. A result outside is rerun once on another GPU of that type
-  before it counts as failed, and both runs are reported (`fanout.py` does this; step 7b).
+  training check; `missing` must be 0. Gate images (all four files): a shape that differs by at most
+  1/255 per pixel, on at most 0.5% of each image's channel values, is noise and passes; any other
+  shape must lie within the envelope, the largest difference per measure (pixels, IoU/MAE/PSNR)
+  between any two of at least 4 runs of tag `pre-refactor` on the same GPU type (Dongchen's rule of
+  2026-10-06). IoU/MAE/PSNR deltas are reported but do not fail a shape within the tolerance.
+  Training check: every recorded value within its envelope, the structure (step order, batch ids,
+  keys, pickled classes) exact. A result outside is rerun once on another GPU of that type, never the
+  one it ran on (on Solar another node), before it counts as failed; with no such GPU free it stays
+  unresolved. Both runs are reported (`fanout.py` does this; step 7b).
 - Run checks in parallel across our machines (workstation, lab 4090s, Solar, Alliance; the
   compute-access skill): split the full gate by shape list, run a training check's before, after and
   noise runs at once, prepare the next step while checks run (commit it only after the step before
@@ -92,9 +94,9 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 - Routine steps: `scripts/internal/gate/subset20.txt` (20 shapes, 164 s). Full: all 204
   (`$L/test_agentic_clean.txt`, about 24 min), for steps that touch the loader or the model and
   before the merge.
-- Compare all four files. Pass: `missing=0`, and every shape within 1/255 per pixel in all four files
-  or within the envelope (`compare_numeric.py --envelope`, How we work), after at most one rerun on
-  another GPU of the type. The release checkpoint gets its own gate (step 7).
+- Compare all four files. Pass: `missing=0`, and every shape within 1/255 per pixel on at most 0.5% of
+  the values in all four files, or within the envelope (`compare_numeric.py --envelope`, How we work),
+  after at most one rerun on another GPU of the type. The release checkpoint gets its own gate (step 7).
 - The 4090 baseline `$L/pred_gate_det1_seed00` exists only on the workstation.
 
 ## Keep stable (other code depends on these)
@@ -210,9 +212,9 @@ published paper numbers, and the release has different test shapes, bake and GT 
 across the avaialble devices"; "dont have them waiting for the GPU all the time... just find the
 avaialbe ones and running them."
 
-**Result:** Release check root from Hugging Face, the fan-out driver, the pass rule (1/255, envelope,
-rerun once) and its baselines; commits `9054f22`, `7f0586e` and the 1/255 commit after them. Verdict:
-head (code = 8a) PASS on the 4090 and the L40S (re-scored end-to-end run); negative control FAIL.
+**Result:** Release check root from Hugging Face, the fan-out driver, the pass rule (1/255 on ≤0.5% of
+the values, envelope, rerun once on another GPU) and its baselines; commits `9054f22`, `7f0586e`,
+`b72221a` and the review fix after them. Verdict: head (code = 8a) PASS (re-scored); negative control FAIL.
 
 ### 8. Fold our modules into upstream's originals
 

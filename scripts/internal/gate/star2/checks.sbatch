@@ -9,7 +9,11 @@
 # checkpoints with their configs (sha256-checked) come from jupiter (read-only) onto the node's
 # /localscratch/dya78/refactor_checks. The release check root (make_check_root.py, built from the
 # Hugging Face release on the workstation) comes from the shared $HOME and is checked against its
-# MANIFEST.sha256 on every run. The tree under test and this tooling live on the shared $HOME:
+# MANIFEST.sha256 on every run. On a node that is not ours (not in __OWN_NODES__, e.g. theia-lab's
+# cs-venus-18/20), the job deletes the staging and the run outputs there when it ends (~30 GB), unless
+# another checks job is active on the node ($LS/.active). On our nodes they stay for the next run;
+# `fanout.py --solar_clean <node>` lists them and deletes the per-run outputs.
+# The tree under test and this tooling live on the shared $HOME:
 #   rsync -a <tree>/ star2:refactor_checks/trees/<name>/          (e.g. git archive of a commit)
 #   rsync -a --delete scripts/ star2:refactor_checks/tooling/scripts/          (this tooling, repo layout)
 #   rsync -a ../evaluation/newdata_eval/run_texgen_infer.py star2:refactor_checks/tooling/repo/evaluation/newdata_eval/
@@ -20,9 +24,10 @@
 #       -e 's|__TASKS__||' -e 's|__PAPER_RUNS__|1 2|' -e 's|__RELEASE_RUNS__|1 2|' \
 #       -e 's|__TRAIN_RUNS__|fresh:1 fresh:2 resume:1 resume:2|' \
 #       -e 's|__GRES__|l40s:4|' -e 's|__NCPU__|24|' -e 's|__MEM__|256G|' -e 's|__TIME__|02:00:00|' \
+#       -e 's|__OWN_NODES__|cs-venus-15 cs-venus-16 cs-venus-17|' \
 #       scripts/internal/gate/star2/checks.sbatch > /tmp/checks.sbatch
 #   python3 ~/.claude/skills/compute-access/scripts/hostprobe.py      # a node with that many free L40S, now
-#   ssh star2 'sbatch --deadline=now+<time + 2 min>' < /tmp/checks.sbatch   # starts within 2 min or is cancelled
+#   ssh star2 'sbatch --deadline=now+<time + 2 min>' < /tmp/checks.sbatch   # starts within 2 min or is canceled
 #   ssh star2 'sacct -N <node> -a -S now-15minutes -X -n -s PR'      # any line = a preemption: tell Dongchen
 # No `-w`: Slurm picks a node with free L40S (`sbatch --test-only` routes it to 3dlg-hcvc-lab-debug).
 # A GPU job pinned to one of our nodes with `-w` evicts another lab's running job there instead of
@@ -55,6 +60,23 @@ say() { echo "[checks $(date +%H:%M:%S)] $*"; }
 SYNC="rsync -rlt"   # transfers use rsync, never cp (parent AGENTS.md); -rlt: no owner or permission bits
 die() { echo "CHECKS_FAIL label=$LABEL node=$(hostname -s) job=${SLURM_JOB_ID:-} reason=$*"
         mkdir -p "$HOUT" && echo "CHECKS_FAIL $*" > "$HOUT/status.txt"; exit 1; }
+# Our L40S nodes (fanout.py SOLAR_NODES). An unfilled placeholder counts as none: the staging then goes.
+OWN_NODES="__OWN_NODES__"; case "$OWN_NODES" in __*) OWN_NODES="" ;; esac
+ACTIVE=$LS/.active/${SLURM_JOB_ID:-$$}   # this job uses the staging; removed on exit
+cleanup() {  # every exit, die and timeout (SIGTERM) included
+  [ -d "$LS" ] || return 0
+  rm -f "$ACTIVE"
+  case " $OWN_NODES " in *" $(hostname -s) "*) return 0 ;; esac
+  exec 7>"$LS/.stage.lock"; flock 7   # not while another job stages; the lock file itself stays
+  if [ -z "$(ls -A "$LS/.active" 2>/dev/null)" ]; then
+    say "cleanup: not our node, deleting the staging and outputs under $LS ($(du -sh "$LS" 2>/dev/null | cut -f1))"
+    find "$LS" -mindepth 1 -maxdepth 1 ! -name .stage.lock -exec rm -rf {} +
+  else
+    say "cleanup: another checks job is active on this node; the staging stays for it"
+  fi
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
 say "node=$(hostname -s) job=${SLURM_JOB_ID:-} tree=$TREE label=$LABEL gpus=$(nvidia-smi --query-gpu=name --format=csv,noheader | sort | uniq -c | xargs)"
 # The shared env's torchsparse carries sm_89 kernels only: an A40 (sm_86) fails with "no kernel image".
 CC=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
@@ -92,6 +114,7 @@ stage_ckpt() {  # run file sha256
 stage_ckpt texgen_alpha_74k_v2_agentic epoch=124-step=35500.ckpt 2e52305fd352a931f20d03e942b2b4e85665218d198d9e29cfe5c56ab61249f6 || die "paper ckpt"
 stage_ckpt texgen_alpha_lightgenbench_v1 epoch=124-step=35625.ckpt 6c42a311f5925f5bcfd87a1bb68592a76ae71d53ce0efe3c90e880bf8e3892aa || die "release ckpt"
 $SYNC --delete "$H/hf_root/" "$RROOT/" && (cd "$RROOT" && sha256sum -c --quiet MANIFEST.sha256) || die "release check root"
+mkdir -p "$LS/.active" && touch "$ACTIVE" || die "active marker"
 flock -u 8
 ( set +u; source "$ACT"; set -u; python -c "import torch; print('[probe] torch', torch.__version__, torch.cuda.device_count(), 'GPUs')" ) || die "env probe"
 

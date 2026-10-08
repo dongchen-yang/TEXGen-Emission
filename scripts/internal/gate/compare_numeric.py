@@ -12,17 +12,22 @@ measure the largest per-shape difference of any pair is the bound. The measures,
 each file the mean and the max absolute pixel difference, and |dIoU|, |dMAE|, |dPSNR|. A candidate
 is within the envelope when, for every measure, no shape of it differs from the baseline by more.
 (The change of the mean IoU, MAE, PSNR is printed, not tested: it is bounded by the per-shape ones.)
---envelope_json caches the envelope; it is recomputed when the runs or the shapes differ.
+--envelope_json caches the envelope; it is recomputed when the runs, the shapes, any file the
+envelope reads (path, size, mtime) or the cache's schema (ENVELOPE_SCHEMA) differ.
 --noise_a <run1> --noise_b <run2> is the same as --envelope <run1> <run2>.
 
-Tolerance first (Dongchen, 2026-10-07): a shape whose four files differ from the baseline by at most
-1/255 per pixel (TOLERANCE) is noise and passes, whatever the envelope says; its IoU, MAE and PSNR
-deltas are still reported. Only the shapes that differ by more meet the envelope.
+Tolerance first (Dongchen, 2026-10-07): a shape passes as noise, whatever the envelope says, when in
+each of its four files every pixel differs from the baseline by at most 1/255 (TOLERANCE) and at most
+0.5% of the file's values differ (TOLERANCE_MAX_FRACTION; values = the H x W x 3 channel values of
+the whole image, so 0.5% of a 256 x 256 RGB image is 983 values). Real second outputs differ on
+about 0.1% of values (worst shape seen 0.67%); +1/255 on every emitting texel of 5 release shapes
+differed on 0.50-9.4%. The shape's IoU, MAE and PSNR deltas are still reported. Every other shape
+meets the envelope.
 
 Both roots are laid out <root>/<sha>/{pred_emission,gt_emission,mask,input_albedo}.png. Per shape
-and per file it reports byte identity and the mean and max absolute pixel difference (in 1/255
-steps). For pred_emission it also scores both runs against the BASELINE's gt_emission.png over the
-baseline's mask.png texels with the evaluator's own metric functions
+and per file it reports byte identity, the mean and max absolute pixel difference (in 1/255 steps)
+and the fraction of values that differ. For pred_emission it also scores both runs against the
+BASELINE's gt_emission.png over the baseline's mask.png texels with the evaluator's own metric functions
 (`evaluation/pointsampled/metrics.py`: emission mask at eps 1/255, IoU, MAE, PSNR with its 40 dB
 cap), so a metric change reflects the prediction alone. These are UV-space numbers: the published
 evaluator samples the same PNG at mesh surface points, which this script does not do.
@@ -106,6 +111,7 @@ def compare_pair(root_a, root_b, shas):
             row[f"{k}_state"] = "identical" if same_bytes else ("shape" if d is None else "different")
             row[f"{k}_mean"] = float(d.mean()) if d is not None else float("inf")
             row[f"{k}_max"] = float(d.max()) if d is not None else float("inf")
+            row[f"{k}_frac"] = float(np.count_nonzero(d) / d.size) if d is not None else float("inf")
         if all(k in imgs for k in ("pred_emission", "gt_emission", "mask")) and row["pred_emission_state"] != "shape":
             occ = imgs["mask"][0].max(axis=-1) > 0
             gt = imgs["gt_emission"][0]
@@ -124,7 +130,7 @@ def summarize(rows):
         k = fn[:-4]
         states = [r.get(f"{k}_state", "missing") for r in rows]
         counts[k] = {st: states.count(st) for st in ("identical", "different", "shape", "missing")}
-        for stat in ("mean", "max"):
+        for stat in ("mean", "max", "frac"):
             v = [r[f"{k}_{stat}"] for r in rows if f"{k}_{stat}" in r]
             s[f"{k}_{stat}"] = (float(np.mean(v)), float(np.max(v))) if v else (0.0, 0.0)
     for m in METRICS:
@@ -145,7 +151,8 @@ def report(tag, s, counts):
         c = counts[k]
         print(f"[{tag}] {fn:18s} identical={c['identical']} different={c['different'] + c['shape']} "
               f"missing={c['missing']}  |d| per shape (1/255 steps): mean {s[k + '_mean'][0]:.4g} "
-              f"(worst shape {s[k + '_mean'][1]:.4g}), max {s[k + '_max'][1]:.4g}")
+              f"(worst shape {s[k + '_mean'][1]:.4g}), max {s[k + '_max'][1]:.4g};  values differing: "
+              f"worst shape {100 * s[k + '_frac'][1]:.3g}%")
     for m in METRICS:
         ua, ub = counts[f"undefined_{m}"]
         print(f"[{tag}] {m.upper():4s} mean a={s['mean_' + m + '_a']:.6f} b={s['mean_' + m + '_b']:.6f} "
@@ -154,14 +161,39 @@ def report(tag, s, counts):
               + (f";  undefined on {ua} / {ub} shapes (no occupied texel)" if ua or ub else ""))
 
 
-TOLERANCE = 1   # 1/255 steps: a larger per-pixel difference in any file meets the envelope
+TOLERANCE = 1                   # 1/255 steps: a larger per-pixel difference in any file meets the envelope
+TOLERANCE_MAX_FRACTION = 0.005  # and so does a file with more than this share of its channel values differing
 MEASURES = [f"{fn[:-4]}_{stat}" for fn in FILES for stat in ("mean", "max")] + [f"d{m}" for m in METRICS]
+ENVELOPE_SCHEMA = 2             # bump when MEASURES or their definition change: older caches are recomputed
+
+
+def within_tolerance(row):
+    """A shape is noise when, in each of the four files, no pixel differs by more than TOLERANCE and at
+    most TOLERANCE_MAX_FRACTION of the values differ. Missing or reshaped files never are."""
+    return all(row.get(f"{fn[:-4]}_max", math.inf) <= TOLERANCE
+               and row.get(f"{fn[:-4]}_frac", math.inf) <= TOLERANCE_MAX_FRACTION for fn in FILES)
+
+
+def files_digest(runs, shas):
+    """sha256 over path, size and mtime of every file the envelope reads: a rewritten run is noticed."""
+    h = hashlib.sha256()
+    for r in runs:
+        for sha in shas:
+            for fn in FILES:
+                p = os.path.join(os.path.abspath(r), sha, fn)
+                try:
+                    st = os.stat(p)
+                    h.update(f"{p} {st.st_size} {st.st_mtime_ns}\n".encode())
+                except FileNotFoundError:
+                    h.update(f"{p} missing\n".encode())
+    return h.hexdigest()
 
 
 def envelope(runs, shas, cache=None):
     """Per measure, the largest per-shape difference between any two runs; cached in `cache`."""
-    key = {"runs": [os.path.abspath(r) for r in runs], "n": len(shas),
-           "shas_sha256": hashlib.sha256("\n".join(shas).encode()).hexdigest()}
+    key = {"schema": ENVELOPE_SCHEMA, "measure_names": MEASURES, "runs": [os.path.abspath(r) for r in runs],
+           "n": len(shas), "shas_sha256": hashlib.sha256("\n".join(shas).encode()).hexdigest(),
+           "files_sha256": files_digest(runs, shas)}
     if cache and os.path.isfile(cache):
         with open(cache) as f:
             e = json.load(f)
@@ -223,11 +255,13 @@ def main(argv=None):
             w.writerows(rows)
     missing = sum(counts[fn[:-4]]["missing"] for fn in FILES)
     identical = all(counts[fn[:-4]]["identical"] == len(shas) for fn in FILES)
-    # Dongchen 2026-10-07: a shape whose four files differ by at most 1/255 per pixel is noise and passes
-    # whatever the envelope says; only larger differences meet the envelope.
-    big = [r for r in rows if not all(r.get(f"{fn[:-4]}_max", math.inf) <= TOLERANCE for fn in FILES)]
-    print(f"[tolerance] {len(rows) - len(big)} of {len(rows)} shapes within {TOLERANCE}/255 in all four files "
-          f"(noise, pass); {len(big)} differ by more")
+    # Dongchen 2026-10-07: a shape whose four files differ by at most 1/255 per pixel, each on at most 0.5%
+    # of its values, is noise and passes whatever the envelope says; every other shape meets the envelope.
+    big = [r for r in rows if not within_tolerance(r)]
+    by_share = sum(all(r.get(f"{fn[:-4]}_max", math.inf) <= TOLERANCE for fn in FILES) for r in big)
+    print(f"[tolerance] {len(rows) - len(big)} of {len(rows)} shapes within {TOLERANCE}/255 on at most "
+          f"{100 * TOLERANCE_MAX_FRACTION:g}% of the values in all four files (noise, pass); {len(big)} differ "
+          f"by more" + (f" ({by_share} of them within {TOLERANCE}/255 but on more values)" if by_share else ""))
     if identical:
         verdict = "IDENTICAL"
     elif missing:
