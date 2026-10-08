@@ -30,9 +30,9 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 
 - One step = one commit with one purpose. Removals and moves never share a commit with a behavior
   change. Cleanups change no behavior; fixes go under "Later", one step each, only if wanted.
-- Steps run automatically, in order: when a step's checks pass, commit it, fill in its **Result**,
-  report it in one line, start the next. Dongchen can add **Instructions** to any step at any time.
-- Stop and ask only for: (1) an open decision the step needs; (2) a check that fails, unless the
+- Steps run one at a time, together with Dongchen: he gives the go and any **Instructions** for each
+  step; when its checks pass, commit it, fill in its **Result**, report, and wait for the next go.
+- Inside a step, stop and ask for: (1) an open decision the step needs; (2) a check that fails, unless the
   cause is an obvious slip in the step; (3) something the plan does not cover (a needed fix, a
   behavior change, a file outside the step's list); (4) an action outside the worktree and our
   compute: a push, a parent-repo commit, the merge into `main`, a write to jupiter's shared tree.
