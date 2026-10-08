@@ -33,9 +33,8 @@
 # gets the same [0,1] -> [-1,1] remap as albedo/metal/rough.
 #
 # NOTE in_channels: 13 ALSO describes the unrelated gt_mask_cond variant. The two are told
-# apart by explicit flags, never by channel count: this run sets data.use_alpha=true and
-# leaves backbone.use_gt_emission_mask_cond at its false default. Setting in_channels: 13
-# without use_alpha would hand the model the GT emission mask it is trained to predict.
+# apart by an explicit flag, never by channel count: alpha is always read, and this run leaves
+# backbone.use_gt_emission_mask_cond at its false default.
 #
 name: lightgen
 tag: "texgen_alpha_lightgenbench_v1"
@@ -57,7 +56,7 @@ auto_resume: true
 # The split's indices are POSITIONAL into the parquet filtered to success==True. Both
 # files are written from the release's splits.json by scripts/lightgenbench/build_index.py
 # at the start of every segment, and its --check proves the indices select those uuids.
-data_cls: spuv.data.lightgen_uv.LightGenDataModule
+data_cls: spuv.data.mesh_uv.ObjaverseDataModule
 data:
   # ${oc.env:SLURM_TMPDIR} is resolved by OmegaConf at load time (omegaconf 2.3.0 on fir).
   # Outside a SLURM job this raises rather than silently pointing somewhere wrong.
@@ -67,7 +66,6 @@ data:
   eval_scene_list: ""
   repeat: 1
   vertex_transformation: false
-  use_alpha: true            # emit alpha_map; requires alpha in the npz or an alpha.npy sidecar
   cond_views: 1
   sup_views: 4
   camera_strategy: "strategy_1"

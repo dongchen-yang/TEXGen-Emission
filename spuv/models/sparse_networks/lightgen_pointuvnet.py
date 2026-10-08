@@ -36,7 +36,6 @@ class LightGenPointUVNet(PointUVNet):
                 position_map,
                 timestep,
                 clip_embeddings,
-                mesh,
                 image_info,
                 data_normalization,
                 condition_drop,
@@ -50,7 +49,6 @@ class LightGenPointUVNet(PointUVNet):
             position_map: [B, 3, H, W] - 3D positions in UV space
             timestep: [B] - diffusion timestep
             clip_embeddings: [text_emb, image_emb] - CLIP embeddings (can be None)
-            mesh: mesh data (not used in LightGen)
             image_info: dict with 'baked_texture' [B, 5 or 6, H, W] (albedo+metal+rough[+alpha])
                         and 'baked_weights' [B, 1, H, W] (occupancy mask)
             data_normalization: bool - whether data is normalized to [-1, 1]
@@ -152,7 +150,6 @@ class LightGenPointUVNet(PointUVNet):
                 position_map,
                 condition_embedding,
                 ctx=self.ctx,
-                mesh=mesh,
                 feature_info=None,
             )
 
@@ -200,7 +197,6 @@ class LightGenPointUVNet(PointUVNet):
                 position_map,
                 condition_embedding,
                 ctx=self.ctx,
-                mesh=mesh,
                 feature_info=None,
             )
 

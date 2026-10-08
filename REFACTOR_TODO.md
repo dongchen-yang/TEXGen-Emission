@@ -104,15 +104,17 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 1. `inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None, parquet_file=None,
    seed=0)` in `inference_specific_samples.py`, imported after a `chdir` and called by keyword from
    `../evaluation/newdata_eval/run_texgen_infer.py:40-46` and
-   `scripts/internal/fir/infer_lightgenbench_fir.sh:71-74`. Legacy caller:
+   `scripts/internal/fir/infer_lightgenbench_fir.sh:81-84`. Legacy caller:
    `../evaluation/pointsampled/texgen_infer.py` (keep or retire in step 16).
 2. Class paths in each run's `configs/parsed.yaml` (read as `ckpt/../../configs/parsed.yaml`):
-   `spuv.systems.lightgen_system.LightGenSystem`, `spuv.data.lightgen_uv.LightGenDataModule`,
+   `spuv.systems.lightgen_system.LightGenSystem`,
    `spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet`,
-   `spuv.models.tokenizers.clip.ClipTokenizer`. Pickled in the paper checkpoint:
+   `spuv.models.tokenizers.clip.ClipTokenizer`; a path we retire is mapped by
+   `scripts/convert_config.py` instead (8a: the loader's). Pickled in the paper checkpoint:
    `spuv.systems.lightgen_system.LightGenSystem`, `spuv.systems.texgen_base.LossConfig`.
 3. Every key in the published `parsed.yaml` files stays accepted (`spuv/utils/config.py:151` merges in
-   struct mode): keys may stop being read, never be deleted from the dataclasses.
+   struct mode): keys may stop being read; a key deleted from the dataclasses is dropped by
+   `scripts/convert_config.py` (8a: `data.use_alpha`).
 4. Attribute names `backbone`, `backbone_ema`, `image_tokenizer` (inference loads with `strict=False`,
    so a rename drops weights silently) and the checkpoint keys `_scheduler_states`, `wandb_run_id`
    (`spuv/systems/base.py:137,160`).
@@ -120,10 +122,10 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
    linear, [0, 1], masked, the input atlas's UV layout.
 6. The `TEXGEN_ENABLE_FLASH` switch in `spuv/models/sparse_networks/texgen_network.py:49` (star2 sbatch
    files grep for it).
-7. The loader contract (`spuv/data/mesh_uv.py` since 8a; `spuv/data/lightgen_uv.py` re-exports it):
+7. The loader contract (`spuv/data/mesh_uv.py` since 8a):
    `<data_root>/<ditem_dir>/somage.npz`,
    `<data_root>/thumbnails/<sha>.png` (the CLIP input), parquet with `ditem_dir` and `success`, split
-   indices = positions over `success==True` rows, alpha from the npz or an `alpha.npy` sidecar,
+   indices = positions over `success==True` rows, alpha from the npz,
    positions decoded from [−2, 2].
 8. `sample_seed` (`inference_specific_samples.py:26-32`): signature and return line identical to
    `../evaluation/newdata_eval/seedutil.py`.
@@ -225,7 +227,7 @@ the values, envelope, rerun once on another GPU) and its baselines; commits `905
 | `spuv/systems/lightgen_system.py` `LightGenSystem` (subclass of `texgen_test.TEXGenDiffusion`) | `spuv/systems/texgen_test.py` `TEXGenDiffusion` |
 
 Each fold moves our code into the original file, editing upstream's classes and methods in place;
-our file becomes a one-line alias for the published class path. One commit per fold, full gate after
+our file is deleted and `scripts/convert_config.py` maps its class path in old configs. One commit per fold, full gate after
 each, in this order. Needs step 7 first.
 
 - [x] 8a. Data: `lightgen_uv.py` → `mesh_uv.py`. Full gate on all four files plus the training check.
@@ -250,7 +252,7 @@ edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s 
 
 **Result:**
 
-- 8a. Our loader folded into upstream's `spuv/data/mesh_uv.py` (`lightgen_uv.py` re-exports it);
+- 8a. Our loader folded into upstream's `spuv/data/mesh_uv.py` (`lightgen_uv.py` deleted);
   commit `a94fea4`. Verdict: every step-7 check IDENTICAL against `pre-refactor`; PASS again under
   step 7b's driver and rule (re-scored head run).
 
@@ -394,12 +396,16 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
   entry); the stale "main has no flash gate" comments in
   `../evaluation/newdata_eval/run_texgen_infer.py:15-18`, `infer_texgen_v2_venus05.sbatch:6`,
   `sweeps/stage_texgen_host.sh:46`.
-- [ ] Loader pointers (since 8a the loader is `spuv/data/mesh_uv.py`; `spuv/data/lightgen_uv.py`
-  only re-exports, so every name below still resolves): comments and mirrored constants in
+- [ ] Loader pointers (since 8a the loader is `spuv/data/mesh_uv.py` and `spuv/data/lightgen_uv.py`
+  is gone): comments and mirrored constants in
   `../data_processing/data_preparation/{atlas.py:5,contract.py:8,multiview.py:335}` and
   `tests/test_encoding_parity.py:5,17,53`; docs `../data_processing/data_preparation/README.md:45,56`,
   `../docs/baselines/texgen.md:35`, `../.claude/rules/texgen.md:72`. The import in
-  `../evaluation/pointsampled/texgen_infer.py:23` works through the alias.
+  `../evaluation/pointsampled/texgen_infer.py:23` breaks; parent scripts that run the current code
+  on a published run's `parsed.yaml` (`infer_texgen_v2_venus05.sbatch`, `texgen_worker.sbatch`,
+  `sweeps/job_texgen.sh`, the smoke command `sweeps/stage_texgen_host.sh` prints) need
+  `scripts/convert_config.py` first, as `gate-det.sh` does; converting once in
+  `run_texgen_infer.py` covers them all.
 - [ ] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too?
 
 **Instructions:**

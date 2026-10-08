@@ -37,6 +37,8 @@ python launch.py --config <config.yaml> --gpu 0 --train --wandb
 python launch.py --config <config.yaml> --gpu 0 --test system.resume=/path/to/checkpoint.ckpt
 python launch.py --config <config.yaml> --gpu 0 --validate system.resume=/path/to/checkpoint.ckpt
 python inference_specific_samples.py
+# A published checkpoint's own config (older names) first goes through the converter
+python scripts/convert_config.py <run>/configs/parsed.yaml <copy>/configs/parsed.yaml
 ```
 
 ### Config Overrides (CLI)
@@ -100,7 +102,9 @@ other envelope of `pre-refactor` is zero. A +1/255 shift of the emission of 5 re
   inference, seed 0, on the paper gate root (`C/paper_root`, the paper-era test bake) by default;
   the release gate passes the release check root and its parquet as the last two arguments.
   `GATE_LOCK_WAIT=0` tries the 4090 lock once instead of waiting up to 3 h. Writes
-  `<out_dir>/gpu.txt` (host and card).
+  `<out_dir>/gpu.txt` (host and card). A tree that ships `scripts/convert_config.py` gets the
+  checkpoint's `parsed.yaml` converted (in a temporary copy of the run directory); an older tree
+  reads it as is.
 - `compare_numeric.py --a <baseline> --b <out_dir> --shas_file <shas> [--envelope <run> ...
   --envelope_shas <all shapes> --envelope_json <cache>]` — byte identity, pixel differences, the share
   of differing values and the evaluator's IoU, MAE and PSNR per shape (UV texels, not point-sampled),
@@ -150,14 +154,16 @@ BaseSystem (base.py)
 Classes are referenced by string paths in YAML configs. `spuv.find()` resolves them at runtime:
 ```yaml
 system_cls: spuv.systems.lightgen_system.LightGenSystem
-data_cls: spuv.data.lightgen_uv.LightGenDataModule
+data_cls: spuv.data.mesh_uv.ObjaverseDataModule
 backbone_cls: spuv.models.sparse_networks.lightgen_pointuvnet.LightGenPointUVNet
 image_tokenizer_cls: spuv.models.tokenizers.clip.ClipTokenizer
 ```
-`spuv/data/lightgen_uv.py` only re-exports: the loader is upstream's `spuv/data/mesh_uv.py`, edited
-in place (`ObjaverseDataModule`, `ObjaverseDataset`, `ObjaverseDataModuleConfig` are our
-`LightGenDataModule`, `LightGenDataset`, `LightGenDataModuleConfig`); `git diff upstream/main --
-spuv/data/mesh_uv.py` shows what we changed.
+The loader is upstream's `spuv/data/mesh_uv.py`, edited in place; `git diff upstream/main --
+spuv/data/mesh_uv.py` shows what we changed. A config written before that (every published
+checkpoint's `configs/parsed.yaml`) still names `spuv.data.lightgen_uv.LightGenDataModule` and
+carries `data.use_alpha`: `python scripts/convert_config.py <old.yaml> <new.yaml>` converts it.
+Inference reads the config beside the checkpoint (`<run>/ckpts/../configs/parsed.yaml`), so write
+the result into a copy of the run directory.
 
 ### Backbone: LightGenPointUVNet
 Modified PointUVNet operating on **pre-baked UV data** (no online rasterization). 5-stage encoder-decoder:
@@ -214,7 +220,6 @@ metal          [H, W, 1]  uint8   — metallic (decoded to [0, 1])
 rough          [H, W, 1]  uint8   — roughness (decoded to [0, 1])
 emission_color [H, W, 3]  uint8   — GT emission (decoded to [0, 1], normalized to [-1, 1])
 alpha          [H, W, 1]  uint8   — glTF opacity (decoded to [0, 1]); always read
-                                    (`use_alpha` is kept only for published configs; false is refused)
 ```
 
 ### Input Channels

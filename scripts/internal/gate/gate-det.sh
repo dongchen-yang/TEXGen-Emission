@@ -37,6 +37,17 @@ export TEXGEN_GATE_DETERMINISTIC=1 CUBLAS_WORKSPACE_CONFIG=:4096:8 PYTHONPATH="$
 # The device this run used: compare a run only with a baseline from the same GPU type.
 mkdir -p "$OUT"
 echo "host=$(hostname -s) gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader -i "${CUDA_VISIBLE_DEVICES:-0}")" | tee "$OUT/gpu.txt"
+# A tree that ships scripts/convert_config.py reads current names only: inference gets a temporary
+# copy of the run directory, its configs/parsed.yaml converted and the checkpoint linked. Older
+# trees (pre-refactor) read the run's own config.
+if [ -f "$ROOT/scripts/convert_config.py" ]; then
+  RUN=$(mktemp -d); trap 'rm -rf "$RUN"' EXIT
+  mkdir -p "$RUN/ckpts" "$RUN/configs"
+  python "$ROOT/scripts/convert_config.py" "$(dirname "$(dirname "$CKPT")")/configs/parsed.yaml" "$RUN/configs/parsed.yaml"
+  ln -s "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")"
+  CKPT=$RUN/ckpts/$(basename "$CKPT")
+  echo "[config] converted with $ROOT/scripts/convert_config.py: $CKPT"
+fi
 python $REPO/evaluation/newdata_eval/run_texgen_infer.py \
   --texgen_root $ROOT --ckpt $CKPT \
   --data_root $DATA --parquet $PARQUET \

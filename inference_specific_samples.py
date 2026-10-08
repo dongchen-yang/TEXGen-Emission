@@ -88,7 +88,7 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     
     # Load data module
     print("\n2. Setting up data module...")
-    from spuv.data.lightgen_uv import LightGenDataModule, LightGenDataset
+    from spuv.data.mesh_uv import ObjaverseDataModule
     
     # Override to use full dataset (not filtered) to find all samples
     cfg_data = cfg.data.copy()
@@ -102,7 +102,7 @@ def inference_samples(checkpoint_path, sample_ids, output_dir, data_root=None,
     cfg_data.test_indices = None
     
     # Create a custom dataset that only loads specific samples
-    data_module = LightGenDataModule(cfg_data)
+    data_module = ObjaverseDataModule(cfg_data)
     data_module.setup('test')
     
     # Find indices for our sample IDs

@@ -62,6 +62,16 @@ NPZ=$(find "$ROOT" -mindepth 2 -maxdepth 2 -name somage.npz | wc -l); THM=$(find
 echo "[stage] somage.npz=$NPZ thumbnails=$THM expect=$N"
 [ "$NPZ" -eq "$N" ] && [ "$THM" -eq "$N" ] || { echo "FATAL staged tree incomplete"; exit 2; }
 
+# ---- a repo that ships scripts/convert_config.py reads current names only: inference gets a copy
+# of the run directory, its configs/parsed.yaml converted and the checkpoint linked ----------
+if [ -f "$REPO/scripts/convert_config.py" ]; then
+  RUN=$SLURM_TMPDIR/run; mkdir -p "$RUN/ckpts" "$RUN/configs"
+  python "$REPO/scripts/convert_config.py" "$(dirname "$(dirname "$CKPT")")/configs/parsed.yaml" "$RUN/configs/parsed.yaml" \
+    || { echo "FATAL convert_config"; exit 2; }
+  ln -s "$(readlink -f "$CKPT")" "$RUN/ckpts/$(basename "$CKPT")"
+  CKPT=$RUN/ckpts/$(basename "$CKPT")
+fi
+
 # ---- inference: the paper harness's call, per-shape seed sha256(uuid:seed) -----------------
 mkdir -p "$OUT"
 cd "$REPO"

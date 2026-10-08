@@ -112,8 +112,6 @@ class LightGenSystem(TEXGenDiffusion):
         gt_emission_mask = batch.get('gt_emission_mask', None)  # [B, 1, H, W] or None
         
         condition_info = {
-            'mesh': batch['mesh'],
-            'mvp_mtx_cond': batch['mvp_mtx_cond'],
             'rgb_cond': rgb_cond,  # Contains all material properties [B, 1, H, W, 8]
             'text_embeddings': text_embeddings,
             'image_embeddings': image_embeddings,
@@ -148,9 +146,7 @@ class LightGenSystem(TEXGenDiffusion):
             clip_embeddings = [text_embeddings, image_embeddings]
         else:
             clip_embeddings = None
-        
-        mesh = condition.get("mesh", None)
-        
+
         # Get material properties (already in UV space)
         albedo_map = condition.get("albedo_map")  # [B, 3, H, W]
         normal_map = condition.get("normal_map")  # [B, 3, H, W]
@@ -174,7 +170,6 @@ class LightGenSystem(TEXGenDiffusion):
         
         # Prepare image info with conditioning
         image_info = {
-            'mvp_mtx_cond': condition.get("mvp_mtx_cond"),
             'rgb_cond': condition.get("rgb_cond"),  # Contains all material properties [B, 1, H, W, 8]
             'baked_texture': baked_texture,  # For PointUVNet: pre-baked material in UV space
             'baked_weights': baked_weights,  # For PointUVNet: occupancy mask
@@ -204,7 +199,6 @@ class LightGenSystem(TEXGenDiffusion):
            position_map,
            timesteps,
            clip_embeddings,  # Changed from image_embeddings to support PointUVNet
-           mesh,
            image_info,
            data_normalization=self.cfg.data_normalization,
            condition_drop=condition_drop,

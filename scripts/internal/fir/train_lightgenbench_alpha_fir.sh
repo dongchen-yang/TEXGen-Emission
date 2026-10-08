@@ -257,7 +257,7 @@ if [ "\$AVAIL_KB" -lt 125829120 ]; then      # 120 GB
 fi
 
 # The tar members are <uuid>/atlas.npz and <uuid>/thumbnail.png (files only). --transform
-# renames them on the way out to the two paths spuv/data/lightgen_uv.py reads.
+# renames them on the way out to the two paths spuv/data/mesh_uv.py reads.
 echo "[stage] extracting ${N_TARS} atlas tars, 8 in parallel  \$(date -Iseconds)"
 find "\$HFD"/data/{train,val,test}/atlas -name 'atlas-*.tar' \\
   | xargs -P 8 -I{} tar xf {} -C "\$ROOT" --transform 's|/atlas\\.npz\$|/somage.npz|' \\
