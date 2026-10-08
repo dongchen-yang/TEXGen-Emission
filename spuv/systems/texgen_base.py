@@ -221,12 +221,9 @@ class TEXGenDiffusion(BaseSystem):
         # Periodic aggressive cleanup to prevent gradual memory leak
         # Clean up every 5 steps to ensure no accumulation
         import gc
-        from spuv.utils.memory_tracker import log_memory
         if hasattr(self, 'global_step') and self.global_step % 5 == 0:
-            log_memory(f"before_ema_cleanup (step={self.global_step})", self.global_step)
             gc.collect()
             torch.cuda.empty_cache()
-            log_memory(f"after_ema_cleanup (step={self.global_step})", self.global_step)
 
     @contextmanager
     def ema_scope(self, context=None):

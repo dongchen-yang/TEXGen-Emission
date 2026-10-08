@@ -410,7 +410,10 @@ Full training checkpoints go to `/scratch/dya78/lightgen/TEXGen/output_emission_
 - **PyTorch 2.6 compat**: `launch.py` patches `torch.load()` to force `weights_only=False`
 - **Auto-resume**: finds latest `last*.ckpt` in checkpoint dir when `auto_resume: true`
 - **WandB resume**: run ID saved in checkpoint, auto-restored on resume. Stale cache cleaned.
-- **Memory management**: `memory_tracker.py` logs GPU usage; `cleanup_after_validation_step: true` runs `gc.collect()` + `torch.cuda.empty_cache()` after each val step
+- **Memory management**: `gc.collect()` + `torch.cuda.empty_cache()` every 5 training steps (`texgen_base.py`
+  `on_train_batch_end`), every 10 batches and every 10 epochs (`base.py`), and after each validation step
+  (`texgen_test.py`; `cleanup_after_validation_step: true` adds another). The release run needed batch 16
+  on an H100 with these on; they stay until measured without.
 - **Signal handling**: graceful shutdown on SIGTERM/SIGUSR1/KeyboardInterrupt
 - **Conda env**: `texgen`
 - **Critical env var**: `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (prevents OOM from fragmentation)

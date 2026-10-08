@@ -5,7 +5,6 @@ import torch.nn.functional as F
 
 import spuv
 from spuv.systems.texgen_test import TEXGenDiffusion as TEXGenTestSystem
-from spuv.utils.memory_tracker import log_memory
 
 
 class TEXGenDiffusion(TEXGenTestSystem):
@@ -24,42 +23,20 @@ class TEXGenDiffusion(TEXGenTestSystem):
 
     cfg: Config
 
-    def configure(self):
-        super().configure()   # the backbone and the CLIP image tokenizer (texgen_test.py)
-
-        # Initialize memory tracker for debugging OOM issues
-        from spuv.utils.memory_tracker import init_tracker
-        # Log memory every step for first few epochs, then every 5 steps
-        self.memory_tracker = init_tracker(enabled=True, log_interval=1)
-        spuv.info("[MEMORY] Memory tracking enabled for OOM debugging")
-
     def training_step(self, batch, batch_idx):
         """Training step for LightGen"""
         if batch is None:
             return None
         
-        # Memory tracking: log at start of training step
-        if batch_idx == 0 or batch_idx % 10 == 0:
-            log_memory(f"train_step_start (epoch={self.current_epoch}, batch={batch_idx})", self.global_step)
-        
         # Prepare data
         diffusion_data = self.prepare_diffusion_data(batch)
         condition_info = self.prepare_condition_info(batch)
         
-        if batch_idx % 10 == 0:
-            log_memory(f"after_data_prep (batch={batch_idx})", self.global_step)
-        
         # Forward pass
         out, addition_info = self(condition_info, diffusion_data)
         
-        if batch_idx % 10 == 0:
-            log_memory(f"after_forward (batch={batch_idx})", self.global_step)
-        
         # Compute loss
         loss_dict = self.get_diffusion_loss(out, diffusion_data)
-        
-        if batch_idx % 10 == 0:
-            log_memory(f"after_loss_compute (batch={batch_idx})", self.global_step)
         
         # Log losses per-step only (x-axis is trainer/global_step via define_metric)
         for key, value in loss_dict.items():
@@ -155,35 +132,7 @@ class TEXGenDiffusion(TEXGenTestSystem):
         del out, addition_info, outputs
         del diffusion_data, condition_info
         
-        # Memory tracking: log after cleanup
-        if batch_idx % 10 == 0:
-            log_memory(f"train_step_end (batch={batch_idx})", self.global_step)
-        
         return total_loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step - images are logged via test tab composite views"""
-        # Memory tracking at validation start
-        if batch_idx == 0:
-            log_memory(f"validation_start (epoch={self.current_epoch})", self.global_step, force=True)
-        
-        # Call parent validation (computes metrics and saves images)
-        # The parent's test_step already logs composite images to test/validation/{object_id}
-        result = super().validation_step(batch, batch_idx)
-        
-        # Memory tracking after validation
-        if batch_idx % 10 == 0 or batch_idx == 0:
-            log_memory(f"after_validation (batch={batch_idx})", self.global_step)
-        
-        # Explicit cleanup for memory management
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
-        
-        if batch_idx % 10 == 0 or batch_idx == 0:
-            log_memory(f"after_val_cleanup (batch={batch_idx})", self.global_step)
-        
-        return result
 
     def get_diffusion_loss(self, out, diffusion_data):
         """

@@ -18,7 +18,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 9. Coverage run (no code change)
 - [x] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [x] 11. Render-only data in our own code (done in 8a)
-- [ ] 12. The memory tracker
+- [x] 12. The memory tracker
 - [ ] 13. `launch.py`
 - [ ] 14. Environment files
 - [ ] 15. Release layer: generic entry points for LightgenBench users
@@ -308,14 +308,16 @@ keys are gone from the loader, the system and the backbone; upstream's lines sta
 
 ### 12. The memory tracker
 
-- [ ] Memory logging: `lightgen_system.py:62-64` (`init_tracker(enabled=True, log_interval=1)`),
+- [x] Memory logging: `lightgen_system.py:62-64` (`init_tracker(enabled=True, log_interval=1)`),
   `:284-303`; `spuv/utils/memory_tracker.py`.
-- [ ] Keep the `gc.collect()` / `torch.cuda.empty_cache()` every 5 steps (`texgen_base.py:221-229`)
+- [x] Keep the `gc.collect()` / `torch.cuda.empty_cache()` every 5 steps (`texgen_base.py:221-229`)
   unless measured on an H100 (the release run already had to drop to batch 16).
 
 **Instructions:**
 
-**Result:**
+**Result:** `spuv/utils/memory_tracker.py` deleted with every `log_memory` call (`base.py`,
+`texgen_base.py`, `texgen_train.py`) and the overrides that only logged (`configure`, `validation_step`,
+`on_train_epoch_start`); every `gc.collect()`/`empty_cache()` stays. Quick check IDENTICAL.
 
 ### 13. `launch.py`
 

@@ -240,12 +240,6 @@ class BaseSystem(pl.LightningModule, Updateable, SaverMixin):
         # on_fit_start() runs BEFORE Lightning restores the checkpoint state,
         # so self.global_step is still 0 at this point. Scheduler restoration
         # is handled in on_train_start() where global_step is correctly set.
-        
-        # Set memory baseline after model is loaded and initialized
-        from spuv.utils.memory_tracker import log_memory, set_baseline
-        log_memory("fit_start (after model init)", force=True)
-        set_baseline()
-        spuv.info("[MEMORY] Baseline memory set after model initialization")
 
     def training_step(self, batch, batch_idx):
         if batch is None:
@@ -271,21 +265,10 @@ class BaseSystem(pl.LightningModule, Updateable, SaverMixin):
 
         """
         tr.start("backward")
-        
-        # Memory tracking before backward
-        from spuv.utils.memory_tracker import log_memory
-        if hasattr(self, 'global_step') and self.global_step % 50 == 0:
-            log_memory("before_backward", self.global_step, force=True)
-        
         if self._fabric:
             self._fabric.backward(loss, *args, **kwargs)
         else:
             loss.backward(*args, **kwargs)
-        
-        # Memory tracking after backward
-        if hasattr(self, 'global_step') and self.global_step % 50 == 0:
-            log_memory("after_backward", self.global_step, force=True)
-        
         tr.end("backward")
 
     def try_training_step(self, batch, batch_idx):
@@ -370,24 +353,14 @@ class BaseSystem(pl.LightningModule, Updateable, SaverMixin):
                     current_lr = scheduler.get_last_lr()[0] if hasattr(scheduler, 'get_last_lr') else 'unknown'
                     spuv.info(f"Scheduler {i} final state: step={scheduler.last_epoch}, LR={current_lr}")
     
-    def on_train_epoch_start(self):
-        """Called at the start of each training epoch."""
-        from spuv.utils.memory_tracker import log_memory
-        if hasattr(self, 'current_epoch'):
-            log_memory(f"epoch_start (epoch={self.current_epoch})", force=True)
-    
     def on_train_epoch_end(self):
         """Called at the end of each training epoch."""
-        from spuv.utils.memory_tracker import log_memory
         import gc
         if hasattr(self, 'current_epoch'):
-            log_memory(f"epoch_end_before_cleanup (epoch={self.current_epoch})", force=True)
-            
             # Only do expensive cleanup every 10 epochs to avoid slowdown
             if self.current_epoch % 10 == 0:
                 gc.collect()
                 torch.cuda.empty_cache()
-                log_memory(f"epoch_end_after_cleanup (epoch={self.current_epoch})", force=True)
 
     def on_validation_epoch_end(self):
         pass
@@ -452,13 +425,10 @@ class BaseSystem(pl.LightningModule, Updateable, SaverMixin):
         self.do_update_step_end(self.true_current_epoch, self.true_global_step)
         
         # Periodic garbage collection to prevent gradual memory accumulation
-        from spuv.utils.memory_tracker import log_memory
         if batch_idx % 10 == 0:
-            log_memory(f"before_batch_cleanup (batch={batch_idx})", self.true_global_step)
             import gc
             gc.collect()
             torch.cuda.empty_cache()
-            log_memory(f"after_batch_cleanup (batch={batch_idx})", self.true_global_step)
         
         tr.end("train_batch_end")
 
@@ -505,7 +475,4 @@ class BaseSystem(pl.LightningModule, Updateable, SaverMixin):
             if p.grad is None:
                 spuv.info(f"{name} does not receive gradients!")
         """
-        # Memory tracking before optimizer step
-        from spuv.utils.memory_tracker import log_memory
-        if hasattr(self, 'global_step') and self.global_step % 50 == 0:
-            log_memory("before_optimizer_step", self.global_step, force=True)
+        pass
