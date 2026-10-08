@@ -14,7 +14,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 6. Configs
 - [x] 7. Check setup: the training check and the noise baselines (no code change)
 - [x] 7b. Release checks on Hugging Face data, and a fan-out driver
-- [ ] 8. Fold our modules into upstream's originals
+- [x] 8. Fold our modules into upstream's originals
 - [ ] 9. Coverage run (no code change)
 - [ ] 10. `inference_specific_samples.py`: output-only code and hardcoded paths
 - [x] 11. Render-only data in our own code (done in 8a)
@@ -243,7 +243,7 @@ each, in this order. Needs step 7 first.
   `texgen_test.py` overrides. Inference runs through `test_pipeline` (`texgen_test.py:496-544`) and
   `ema_scope` (`texgen_base.py:232`); `test_step` (`:269-494`) runs in validation and `trainer.test`.
   `LossConfig` stays in `texgen_base.py`. Full gate, training check and a resume from a real checkpoint.
-- [ ] 8d. Delete `spuv/models/simple_uv_unet.py` (ours, imported by nothing).
+- [x] 8d. Delete `spuv/models/simple_uv_unet.py` (ours, imported by nothing).
 
 During each fold, check what the alias changes observably (the class `__name__` in logs, the path new
 checkpoints pickle, Lightning hparams) and name in the commit message which upstream behavior the
@@ -263,6 +263,8 @@ edit replaces (for example `ObjaverseDataModule`'s mesh loading, `PointUVNet`'s 
 - 8c. Inference path edited into upstream's `texgen_test.py`, training into a new `texgen_train.py`,
   `lightgen_system.py` deleted, checkpoints converted (`convert_config.py --ckpt`), normal dropped.
   Full gate PASS: 204/204 paper (117 matched by their control), release, fresh, resume IDENTICAL.
+- 8d. `spuv/models/simple_uv_unet.py` deleted; nothing imported it (the step-9 coverage run exercises
+  the code at this commit).
 
 ### 9. Coverage run (no code change)
 
