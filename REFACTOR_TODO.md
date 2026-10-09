@@ -24,8 +24,10 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 15. Release layer: generic entry points for LightgenBench users
 - [x] 16. Docs
 - [x] 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
+- [ ] 16c. `texgen_base.on_train_batch_end` back to upstream's text (offered, not run)
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
+- [ ] 19. Release cut: the check tooling leaves the released tree
 
 ## How we work
 
@@ -430,6 +432,14 @@ reads like upstream's.
 **Result:** `base.py` differs from upstream by one line. Quick check wt-16b-20261009-033714 (paper 20,
 release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavior change, 4 stale comments fixed.
 
+### 16c. `texgen_base.on_train_batch_end` back to upstream's text (offered 2026-10-09, not run)
+
+- [ ] Upstream's method is the EMA update alone. Ours (`7d544d4`) adds a `super()` call and a cleanup
+  every 5 steps: the cleanup moves to `texgen_train.on_train_batch_end`; the `super()` call goes (it
+  runs only `update_step_end`, which no class in `spuv/` overrides). Quick check.
+
+**Result:**
+
 ### 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 
 - [ ] The full gate and the training check on the branch head, against the `pre-refactor` baselines.
@@ -482,12 +492,27 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
 
 **Result:**
 
+### 19. Release cut: the check tooling leaves the released tree (Dongchen 2026-10-09)
+
+The released repository carries no regression-check code. This runs after step 17's final check,
+which needs the tooling.
+
+- [ ] Tag the last commit that has it (for example `checks-tooling`), so a later check can restore it.
+- [ ] Delete `scripts/internal/gate/` and CLAUDE.md's § Checking a code change (one line pointing at
+  the tag stays).
+- [ ] With it, decide the other internal files: `scripts/internal/fir/` (cluster launchers with our
+  paths), `REFACTOR_TODO.md`, `CLAUDE.md`.
+
+**Instructions:**
+
+**Result:**
+
 ## Later, only if wanted (behavior changes, one step each)
 
 - [ ] **Flash default.** An unset `TEXGEN_ENABLE_FLASH` means on (`texgen_network.py:49`); both
   published runs used dense attention (`=0`). Forgetting it silently changes numbers on a 4090 or an
   H100 and asserts on Blackwell. Default to dense, or fail when unset.
-- [ ] **Release batch.** The release config says batch 32; the run used 16 × 2 from the launcher.
+- [x] **Release batch.** Done in step 15: the release config carries 16 × 2.
 - [ ] **Fixes from `restructure-2026-09-16`** (`b4e423f`, `e20b015`, `4ef35a7`; re-apply by hand):
   EMA weights on the test pass, the wandb directory, a non-zero exit on interrupt, the resume order
   (one checkpoint read instead of two), validation metrics synced across GPUs, the training preview
