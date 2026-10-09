@@ -157,9 +157,9 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 - D9 Upstream code we do not use stays untouched, files and blocks alike; cleanups touch only our code.
 - [ ] D8 Cut-over (before step 18): after the merge, do the launchers, the `texgen-v2` worktree and
   the staged `TEXGen.tar` move to `main`, or stay on the frozen branch?
-- [ ] D10 Internal scripts in the published code (before publishing): `scripts/internal/` holds our
-  Slurm accounts and paths. Publish as is, publish a snapshot without it, or move it to the parent
-  repo? Recommended: a published snapshot without it.
+- [x] D10 Internal scripts in the published code (before publishing): `scripts/internal/` holds our
+  Slurm accounts and paths. Decided 2026-10-09 (Dongchen): the release drops the check tooling, and
+  with it the other internal files (step 19).
 
 ## Done
 
@@ -476,7 +476,19 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
   point at `TEXGen/README.md`).
 - [ ] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too?
 
-**Instructions:**
+**Instructions:** (Dongchen 2026-10-09: "lets just continue the plan")
+- Runs from a NEW session started at the lightgen root, not from the `refactor` worktree: that
+  session is barred from git in the main checkout, and the rename moves its own directory.
+- Merge: `main` is at `pre-refactor` (`de78afc`), so `cd TEXGen && git status --short` (must be clean)
+  then `git merge --ff-only refactor`.
+- Parent: other sessions leave uncommitted edits there (34 files on 2026-10-09, `AGENTS.md` among
+  them). Stage only this step's hunks (`git add -p <file>` or `git apply --cached`); never `git add -A`.
+- Rename: `git mv TEXGen TEXGen-Emission` (the submodule's name stays `TEXGen`), then
+  `git -C TEXGen-Emission worktree repair .claude/worktrees/refactor .claude/worktrees/texgen-v2`.
+  25 live files name the path (`git grep -l -E "(^|[^A-Za-z_-])TEXGen/|/TEXGen\b"`, leaving out
+  `docs/status/`, `docs/superpowers/`, `data_processing/archive/`, html galleries: records keep
+  the old name).
+- The GitHub repository keeps its name unless Dongchen says otherwise (a push is his call).
 
 **Result:**
 
