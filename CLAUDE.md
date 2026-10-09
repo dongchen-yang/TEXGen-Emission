@@ -181,11 +181,13 @@ Machines:
 BaseSystem (base.py)
   └─ TEXGenDiffusion (texgen_base.py) — Flow Matching, noise schedule, EMA
        └─ TEXGenDiffusion (texgen_test.py) — conditioning, forward, data prep, Euler ODE inference
-            └─ TEXGenDiffusion (texgen_train.py) — training step and emission losses
+            └─ TEXGenDiffusion (texgen_train.py) — training step, emission losses, checkpoint/resume hooks
 ```
 Upstream released no training code (`texgen_base.py`'s training hooks are `pass` stubs), so the
-training class is ours, in its own file; our conditioning, `forward` and `prepare_diffusion_data`
-replace upstream's in `texgen_test.py`.
+training class is ours, in its own file, with our training-time hooks (wandb run id and scheduler
+state in the checkpoint, the resume check, periodic cache cleanup); `base.py` is upstream's but for
+the `loss` default (`field(default_factory=...)`, which newer Python requires). Our conditioning,
+`forward` and `prepare_diffusion_data` replace upstream's in `texgen_test.py`.
 
 ### Dynamic Class Loading
 Classes are referenced by string paths in YAML configs. `spuv.find()` resolves them at runtime:
@@ -447,7 +449,7 @@ Published checkpoints are on jupiter (§ Runs behind the results). Older runs wr
 - **Auto-resume**: finds latest `last*.ckpt` in checkpoint dir when `auto_resume: true`
 - **WandB resume**: run ID saved in checkpoint, auto-restored on resume. Stale cache cleaned.
 - **Memory management**: `gc.collect()` + `torch.cuda.empty_cache()` every 5 training steps (`texgen_base.py`
-  `on_train_batch_end`), every 10 batches and every 10 epochs (`base.py`), and after each validation step
+  `on_train_batch_end`), every 10 batches and every 10 epochs (`texgen_train.py`), and after each validation step
   (`texgen_test.py`; `cleanup_after_validation_step: true` adds another). The release run needed batch 16
   on an H100 with these on; they stay until measured without.
 - **Signal handling**: graceful shutdown on SIGTERM/SIGUSR1/KeyboardInterrupt

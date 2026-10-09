@@ -212,7 +212,7 @@ class TEXGenDiffusion(BaseSystem):
         return torch.tensor(rgb, dtype=torch.float32)
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
-        # Call parent's on_train_batch_end first (important for base cleanup logic)
+        # Call parent's on_train_batch_end first (BaseSystem's dataset and updateable step-end hooks)
         super().on_train_batch_end(outputs, batch, batch_idx)
         
         if self.use_ema:

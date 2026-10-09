@@ -23,6 +23,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 14. Environment files
 - [x] 15. Release layer: generic entry points for LightgenBench users
 - [x] 16. Docs
+- [x] 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
 
@@ -118,7 +119,7 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
    `scripts/convert_config.py` (8a: `data.use_alpha`).
 4. Attribute names `backbone`, `backbone_ema`, `image_tokenizer` (inference loads with `strict=False`,
    so a rename drops weights silently) and the checkpoint keys `_scheduler_states`, `wandb_run_id`
-   (`spuv/systems/base.py:137,160`).
+   (`on_save_checkpoint` / `on_load_checkpoint` in `spuv/systems/texgen_train.py`; in `base.py` until 16b).
 5. Output layout `<out>/<sha>/pred_emission.png` (+ `gt_emission`, `mask`, `input_albedo`): 256²,
    linear, [0, 1], masked, the input atlas's UV layout.
 6. The `TEXGEN_ENABLE_FLASH` switch in `spuv/models/sparse_networks/texgen_network.py:49` (star2 sbatch
@@ -414,6 +415,20 @@ One doc of record, keeping upstream's attribution and citation (`README.md:103`)
 **Result:** README rewritten (every command checked against the code and config; the data commands are
 the ones step 15 tested), CLAUDE.md fixed (alpha channel, runs behind the results, DDP sampler,
 `val/psnr` formula, config keys, output layout), workflow map and teaser deleted. Docs only.
+
+### 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
+
+Dongchen 2026-10-09: our hooks in upstream's `base.py` move into our training class, so `base.py`
+reads like upstream's.
+
+- [x] Moved verbatim: the wandb run id (its default now a class attribute), `on_save_checkpoint`,
+  `on_load_checkpoint`, `on_train_start` (the `on_fit_start` note joins its docstring),
+  `on_train_epoch_end`, and the every-10-batches cleanup from `on_train_batch_end` (now after
+  `texgen_base`'s EMA update). `base.py` keeps one change: the `loss` default (`field(default_factory=…)`),
+  which newer Python requires.
+
+**Result:** `base.py` differs from upstream by one line. Quick check wt-16b-20261009-033714 (paper 20,
+release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavior change, 4 stale comments fixed.
 
 ### 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 
