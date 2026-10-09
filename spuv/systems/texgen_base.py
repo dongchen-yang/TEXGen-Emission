@@ -211,19 +211,9 @@ class TEXGenDiffusion(BaseSystem):
         # Convert to tensor and return
         return torch.tensor(rgb, dtype=torch.float32)
 
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        # Call parent's on_train_batch_end first (BaseSystem's dataset and updateable step-end hooks)
-        super().on_train_batch_end(outputs, batch, batch_idx)
-        
+    def on_train_batch_end(self, *args, **kwargs):
         if self.use_ema:
             self.backbone_ema(self.backbone)
-        
-        # Periodic aggressive cleanup to prevent gradual memory leak
-        # Clean up every 5 steps to ensure no accumulation
-        import gc
-        if hasattr(self, 'global_step') and self.global_step % 5 == 0:
-            gc.collect()
-            torch.cuda.empty_cache()
 
     @contextmanager
     def ema_scope(self, context=None):

@@ -24,7 +24,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 15. Release layer: generic entry points for LightgenBench users
 - [x] 16. Docs
 - [x] 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
-- [ ] 16c. `texgen_base.on_train_batch_end` back to upstream's text (offered, not run)
+- [x] 16c. `texgen_base.on_train_batch_end` back to upstream's text
 - [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
 - [ ] 19. Release cut: the check tooling leaves the released tree
@@ -432,17 +432,19 @@ reads like upstream's.
 **Result:** `base.py` differs from upstream by one line. Quick check wt-16b-20261009-033714 (paper 20,
 release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavior change, 4 stale comments fixed.
 
-### 16c. `texgen_base.on_train_batch_end` back to upstream's text (offered 2026-10-09, not run)
+### 16c. `texgen_base.on_train_batch_end` back to upstream's text (Dongchen 2026-10-09: continue)
 
-- [ ] Upstream's method is the EMA update alone. Ours (`7d544d4`) adds a `super()` call and a cleanup
+- [x] Upstream's method is the EMA update alone. Ours (`7d544d4`) adds a `super()` call and a cleanup
   every 5 steps: the cleanup moves to `texgen_train.on_train_batch_end`; the `super()` call goes (it
   runs only `update_step_end`, which no class in `spuv/` overrides). Quick check.
 
-**Result:**
+**Result:** `texgen_base.py`'s method is upstream's again. Full check wt-16c-full-20261009-040031:
+204/204 paper (one L40S piece WITHIN_NOISE), release, fresh, resume IDENTICAL.
 
 ### 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 
-- [ ] The full gate and the training check on the branch head, against the `pre-refactor` baselines.
+- [x] The full gate and the training check on the branch head, against the `pre-refactor` baselines
+  (wt-16c-full-20261009-040031, the 16c tree: PASS; later commits change only docs).
 - [ ] Merge `refactor` into `main`.
 - [ ] In the parent, one commit: the pointer bump, the rename `TEXGen/` → `TEXGen-Emission/`
   (`.gitmodules`, the gitlink, every parent reference: search again; on 2026-10-06 about 20 files, among

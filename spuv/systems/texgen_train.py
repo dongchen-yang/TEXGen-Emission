@@ -165,10 +165,15 @@ class TEXGenDiffusion(TEXGenTestSystem):
                 torch.cuda.empty_cache()
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
-        super().on_train_batch_end(outputs, batch, batch_idx)
+        super().on_train_batch_end(outputs, batch, batch_idx)  # texgen_base: the EMA update
+        import gc
+        # Periodic aggressive cleanup to prevent gradual memory leak
+        # Clean up every 5 steps to ensure no accumulation
+        if hasattr(self, 'global_step') and self.global_step % 5 == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
         # Periodic garbage collection to prevent gradual memory accumulation
         if batch_idx % 10 == 0:
-            import gc
             gc.collect()
             torch.cuda.empty_cache()
 

@@ -448,8 +448,8 @@ Published checkpoints are on jupiter (§ Runs behind the results). Older runs wr
 - **PyTorch 2.6 compat**: `launch.py` patches `torch.load()` to force `weights_only=False`
 - **Auto-resume**: finds latest `last*.ckpt` in checkpoint dir when `auto_resume: true`
 - **WandB resume**: run ID saved in checkpoint, auto-restored on resume. Stale cache cleaned.
-- **Memory management**: `gc.collect()` + `torch.cuda.empty_cache()` every 5 training steps (`texgen_base.py`
-  `on_train_batch_end`), every 10 batches and every 10 epochs (`texgen_train.py`), and after each validation step
+- **Memory management**: `gc.collect()` + `torch.cuda.empty_cache()` every 5 training steps, every 10 batches
+  (`texgen_train.py` `on_train_batch_end`) and every 10 epochs (`on_train_epoch_end`), and after each validation step
   (`texgen_test.py`; `cleanup_after_validation_step: true` adds another). The release run needed batch 16
   on an H100 with these on; they stay until measured without.
 - **Signal handling**: graceful shutdown on SIGTERM/SIGUSR1/KeyboardInterrupt
