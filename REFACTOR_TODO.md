@@ -26,8 +26,8 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
 - [x] 16c. `texgen_base.on_train_batch_end` back to upstream's text
 - [x] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
-- [ ] 18. Cut-over (optional, per D8)
-- [ ] 19. Release cut: the check tooling leaves the released tree
+- [x] 18. Cut-over (optional, per D8): skipped, D8 = stay
+- [x] 19. Release cut: the check tooling leaves the released tree
 
 ## How we work
 
@@ -155,8 +155,9 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
   dark region, `use_precomputed_clip`, ...); only their configs were deleted.
 - D7 Work happens on branch `refactor`; the parent pointer is bumped once, at the merge (step 17).
 - D9 Upstream code we do not use stays untouched, files and blocks alike; cleanups touch only our code.
-- [ ] D8 Cut-over (before step 18): after the merge, do the launchers, the `texgen-v2` worktree and
-  the staged `TEXGen.tar` move to `main`, or stay on the frozen branch?
+- [x] D8 Cut-over (before step 18): after the merge, do the launchers, the `texgen-v2` worktree and
+  the staged `TEXGen.tar` move to `main`, or stay on the frozen branch? Decided 2026-10-10
+  (Dongchen): stay.
 - [x] D10 Internal scripts in the published code (before publishing): `scripts/internal/` holds our
   Slurm accounts and paths. Decided 2026-10-09 (Dongchen): the release drops the check tooling, and
   with it the other internal files (step 19).
@@ -507,24 +508,33 @@ the loader pointers, `texgen_infer.py` retired, `run_texgen_infer.py` converting
   rebuild the staged `TEXGen.tar` on jupiter (it unpacks to `TEXGen/`) and delete the Solar nodes'
   `.tree_ok` so they unpack it again.
 
-**Instructions:**
+**Instructions:** Skipped (D8: stay, Dongchen 2026-10-10).
 
-**Result:**
+**Result:** The consumers keep branch `texgen-74k-v2-venus05`, the code the published numbers ran;
+`main` gives the same outputs (the gate) and cannot run the 12-channel `_v2` checkpoint. No push, no
+jupiter or cluster change.
 
 ### 19. Release cut: the check tooling leaves the released tree (Dongchen 2026-10-09)
 
 The released repository carries no regression-check code. This runs after step 17's final check,
 which needs the tooling.
 
-- [ ] Tag the last commit that has it (for example `checks-tooling`), so a later check can restore it.
-- [ ] Delete `scripts/internal/gate/` and CLAUDE.md's § Checking a code change (one line pointing at
+- [x] Tag the last commit that has it (for example `checks-tooling`), so a later check can restore it.
+- [x] Delete `scripts/internal/gate/` and CLAUDE.md's § Checking a code change (one line pointing at
   the tag stays).
-- [ ] With it, decide the other internal files: `scripts/internal/fir/` (cluster launchers with our
+- [x] With it, decide the other internal files: `scripts/internal/fir/` (cluster launchers with our
   paths), `REFACTOR_TODO.md`, `CLAUDE.md`.
 
-**Instructions:**
+**Instructions:** Dongchen 2026-10-10: the release is a separate branch; `main` keeps the internal
+files (the checks and these docs keep working there). Tag `checks-tooling` marks the `main` commit
+the release was cut from. Also asked: one data script with an explicit name, no code change, so
+`prepare_lightgenbench.sh` and `build_index.py` became `scripts/lightgenbench/unpack_hf_dataset.sh`
+(`aeb404e`; index files byte-identical on an 826-shape slice of the release, the check root rebuilt
+identical).
 
-**Result:**
+**Result:** Branch `release` (`08d8130`, from `aeb404e`): `scripts/internal/`, `REFACTOR_TODO.md` and
+`CLAUDE.md` removed, README and config comments no longer name them; code files are `main`'s. Its
+tree through `main`'s checks: release and resume IDENTICAL (sp4090), fresh IDENTICAL (L40S, cs-venus-17).
 
 ## Later, only if wanted (behavior changes, one step each)
 
