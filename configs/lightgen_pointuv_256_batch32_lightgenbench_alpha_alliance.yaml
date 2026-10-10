@@ -50,7 +50,7 @@ seed: 42
 auto_resume: true
 
 # Data: 36,426 train / 200 val / 200 test, the LightgenBench release, laid out under
-# $LIGHTGENBENCH_DATA by scripts/lightgenbench/prepare_lightgenbench.sh. The fir launcher points
+# $LIGHTGENBENCH_DATA by scripts/lightgenbench/unpack_hf_dataset.sh. The fir launcher points
 # it into $SLURM_TMPDIR, which is node-local, outside the inode quota, and WIPED AT JOB END — so
 # it unpacks the release's atlas and thumbnail tars (~75 GB) from /scratch at the start of every
 # segment, and checkpoints go to /scratch instead.
@@ -60,11 +60,12 @@ auto_resume: true
 #     does not raise — the system warns and silently falls back to the albedo UV
 #     map, which is how an early run trained 8 epochs on wrong conditioning)
 # The split's indices are POSITIONAL into the parquet filtered to success==True. Both
-# files are written from the release's splits.json by scripts/lightgenbench/build_index.py
-# at the start of every segment, and its --check proves the indices select those uuids.
+# files are written from the release's splits.json by scripts/lightgenbench/unpack_hf_dataset.sh,
+# which re-reads them the loader's way to prove the indices select those uuids (the fir launcher
+# wrote them at the start of every segment).
 data_cls: spuv.data.mesh_uv.ObjaverseDataModule
 data:
-  # $LIGHTGENBENCH_DATA: the data directory scripts/lightgenbench/prepare_lightgenbench.sh writes
+  # $LIGHTGENBENCH_DATA: the data directory scripts/lightgenbench/unpack_hf_dataset.sh writes
   # (the fir launcher sets it to its staging dir, $SLURM_TMPDIR/lightgen/data). Resolved by
   # OmegaConf at load time; unset, this raises rather than silently pointing somewhere wrong.
   data_root: "${oc.env:LIGHTGENBENCH_DATA}/texgen_root"

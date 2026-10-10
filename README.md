@@ -68,12 +68,13 @@ LightgenBench is gated: accept its terms on the dataset page, then log in (`hugg
 ```bash
 huggingface-cli download 3dlg-hcvc/LightgenBench --repo-type dataset --local-dir <download_dir> \
     --include "splits.json" "checksums.sha256" "data/*/atlas/*.tar" "data/*/thumbnail/*.tar"
-bash scripts/lightgenbench/prepare_lightgenbench.sh <download_dir> <data_dir>
+bash scripts/lightgenbench/unpack_hf_dataset.sh <download_dir> <data_dir>
 export LIGHTGENBENCH_DATA=<data_dir>
 ```
 
 The script checks every tar against `checksums.sha256`, unpacks the atlases and thumbnails, writes the
-index the loader reads, and checks that every shape of the split is on disk. That is 36,426 train /
+two index files the loader reads (a table of the shapes and their folders, and the train/val/test
+row numbers into it, made from `splits.json`), and checks that every shape of the split is on disk. That is 36,426 train /
 200 val / 200 test shapes: about 70 GB to download and 75 GB unpacked.
 
 ## Training
@@ -126,7 +127,7 @@ classes: convert its config and checkpoint first with `scripts/convert_config.py
 | `configs/` | the release config |
 | `spuv/` | the model, the loader, training and inference (upstream's package, edited in place) |
 | `launch.py`, `inference_specific_samples.py` | training and test entry point; inference on chosen shapes |
-| `scripts/lightgenbench/` | data preparation |
+| `scripts/lightgenbench/` | `unpack_hf_dataset.sh`: the Hugging Face dataset to the data folder |
 | `scripts/convert_config.py` | older config and checkpoint class names to the current ones |
 | `scripts/internal/` | our cluster launchers and regression checks; not needed to use the code |
 

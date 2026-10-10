@@ -17,11 +17,12 @@ six tars with the `hf` CLI (--hf_cli; the CLI reads its own login token, this sc
 --out first checks every file it reads against the release's checksums.sha256 (splits.json also
 against the sha256 the release runs pin), then builds the root the release run's way
 (scripts/internal/fir/train_lightgenbench_alpha_fir.sh): the tar members are extracted with the
-same renames, and scripts/lightgenbench/build_index.py writes the parquet and split JSON:
+same renames, and the index step of scripts/lightgenbench/unpack_hf_dataset.sh writes the parquet
+and split JSON:
 
   <root>/<uuid>/somage.npz              tar member <uuid>/atlas.npz (alpha inside)
   <root>/thumbnails/<uuid>.png          tar member <uuid>/thumbnail.png (the CLIP input)
-  <root>/df_lightgenbench.parquet       rows train, val, test (build_index.py)
+  <root>/df_lightgenbench.parquet       rows train, val, test (the index step)
   <root>/data_splits_lightgenbench.json train 0-15, val 16-17, test 18-37
   <root>/data_splits_traincheck.json    the same, test cut to its first 2 shapes (the training
                                         check runs trainer.test after fit; 20 would cost 2.5 min)
@@ -134,14 +135,49 @@ def verify(hf, files):
     return got
 
 
+PARQUET, SPLIT_JSON = "df_lightgenbench.parquet", "data_splits_lightgenbench.json"
+INDEX_SPLITS = ("train", "val", "test")
+
+
+def build_index(splits, out_dir):
+    """The index step of scripts/lightgenbench/unpack_hf_dataset.sh, kept the same: rows train, val,
+    test in splits.json order, so each split is a consecutive range of row numbers."""
+    import pandas as pd
+    uuids = [u for s in INDEX_SPLITS for u in splits[s]]
+    pd.DataFrame({"ditem_dir": uuids, "success": True}, index=pd.Index(uuids, name="uuid")).to_parquet(
+        os.path.join(out_dir, PARQUET))
+    indices, start = {}, 0
+    for s in INDEX_SPLITS:
+        indices[s] = {"indices": list(range(start, start + len(splits[s])))}
+        start += len(splits[s])
+    with open(os.path.join(out_dir, SPLIT_JSON), "w") as f:
+        json.dump(indices, f)
+
+
+def check_index(splits, out_dir):
+    """Re-read the index the way the loader does (spuv/data/mesh_uv.py): the row numbers must select
+    exactly the uuids of each split, in order. 0: ok, 1: mismatch."""
+    import pandas as pd
+    df = pd.read_parquet(os.path.join(out_dir, PARQUET))
+    df = df[df["success"] == True]  # noqa: E712
+    ids, dirs = [str(x) for x in df.index], list(df["ditem_dir"])
+    with open(os.path.join(out_dir, SPLIT_JSON)) as f:
+        indices = json.load(f)
+    for s in INDEX_SPLITS:
+        idx = indices[s]["indices"]
+        if [ids[i] for i in idx] != splits[s] or [dirs[i] for i in idx] != splits[s]:
+            print(f"MISMATCH: the {s} indices do not select the {s} uuids of splits.json")
+            return 1
+    print(f"[index] ok: {len(ids)} rows")
+    return 0
+
+
 def untar(tar, dest, members, transform):
     """The release run's extraction (its --transform), limited to the members the root needs."""
     subprocess.run(["tar", "xf", tar, "-C", dest, "--transform", transform, *members], check=True)
 
 
 def build(hf, out):
-    sys.path.insert(0, os.path.join(HERE, "..", "..", "lightgenbench"))
-    import build_index  # the release run's own index writer, unchanged
     import numpy as np
 
     if os.path.exists(out):
@@ -167,10 +203,10 @@ def build(hf, out):
             a = z["alpha"] if "alpha" in z.files else None
         if lack or a.dtype != np.uint8 or a.ndim != 3 or a.shape[2] != 1:
             sys.exit(f"{u}/somage.npz: lacks {lack} or its alpha is not uint8 (H, W, 1)")
-    build_index.build(splits, part)
-    if build_index.check(splits, part) != 0:
+    build_index(splits, part)
+    if check_index(splits, part) != 0:
         sys.exit("index check failed")
-    with open(os.path.join(part, build_index.SPLIT_JSON)) as f:
+    with open(os.path.join(part, SPLIT_JSON)) as f:
         idx = json.load(f)
     idx["test"]["indices"] = idx["test"]["indices"][:2]
     with open(os.path.join(part, "data_splits_traincheck.json"), "w") as f:

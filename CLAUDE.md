@@ -49,7 +49,7 @@ All commands run from the `TEXGen-Emission/` directory.
 bash scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 
 # The same recipe on any 4-GPU machine (README.md: setup, data); LIGHTGENBENCH_DATA is
-# scripts/lightgenbench/prepare_lightgenbench.sh's output dir
+# scripts/lightgenbench/unpack_hf_dataset.sh's output dir
 LIGHTGENBENCH_DATA=<data_dir> TEXGEN_ENABLE_FLASH=0 python launch.py \
     --config configs/lightgen_pointuv_256_batch32_lightgenbench_alpha_alliance.yaml --gpu 0,1,2,3 --train   # + --wandb
 
