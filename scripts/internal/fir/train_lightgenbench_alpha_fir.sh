@@ -37,9 +37,9 @@
 #   # probe first — separate output dir, so auto_resume can never find it later:
 #   OUT_SUFFIX=_probe WALLTIME=3:00:00 \
 #     EXTRA="trainer.max_steps=30 trainer.limit_val_batches=2" \
-#     bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
+#     bash TEXGen-Emission/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 #   # full run:
-#   bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
+#   bash TEXGen-Emission/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 # (In a fir clone on branch texgen-74k-v2-venus05 this file is scripts/fir/train_lightgenbench_alpha_fir.sh;
 # the job body below checks out that branch, so its paths use that layout.)
 #
@@ -73,7 +73,7 @@ MAIL_USER=${MAIL_USER:-yangdongchen1@gmail.com}
 # fir's H100 pool is usually congested and these are BYNODE partitions, so a 4-GPU request
 # waits for a whole free node. Queue the real run behind the probe so it accrues queue age
 # while the probe runs, instead of starting that wait from scratch afterwards:
-#   DEPENDENCY=afterok:<probe_jobid> bash TEXGen/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
+#   DEPENDENCY=afterok:<probe_jobid> bash TEXGen-Emission/scripts/internal/fir/train_lightgenbench_alpha_fir.sh
 DEPENDENCY=${DEPENDENCY:-}
 
 # sha256 of the release's splits.json (2026-09-18), the same value stage_hf.sh pins.

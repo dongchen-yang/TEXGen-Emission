@@ -25,7 +25,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 16. Docs
 - [x] 16b. `base.py` back to upstream's text: our training hooks move to `texgen_train.py`
 - [x] 16c. `texgen_base.on_train_batch_end` back to upstream's text
-- [ ] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
+- [x] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [ ] 18. Cut-over (optional, per D8)
 - [ ] 19. Release cut: the check tooling leaves the released tree
 
@@ -445,15 +445,15 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
 
 - [x] The full gate and the training check on the branch head, against the `pre-refactor` baselines
   (wt-16c-full-20261009-040031, the 16c tree: PASS; later commits change only docs).
-- [ ] Merge `refactor` into `main`.
-- [ ] In the parent, one commit: the pointer bump, the rename `TEXGen/` → `TEXGen-Emission/`
+- [x] Merge `refactor` into `main`.
+- [x] In the parent, one commit: the pointer bump, the rename `TEXGen/` → `TEXGen-Emission/`
   (`.gitmodules`, the gitlink, every parent reference: search again; on 2026-10-06 about 20 files, among
   them `../evaluation/newdata_eval/run_texgen_infer.py` and its test, `sweeps/job_texgen.sh`,
   `sweeps/stage_texgen_host.sh`, `sweeps/star2/texgen_worker.sbatch`, `infer_texgen_v2_venus05.sbatch`,
   `seedutil.py`, `../data_processing/data_preparation/README.md` and its
   `tests/test_encoding_parity.py`, `../.claude/rules/texgen.md` with its `paths:` front matter,
   `../AGENTS.md`). The `texgen-v2` worktree moves with the directory.
-- [ ] Parent docs: `../docs/baselines/texgen.md` (the config table `:12-30,48` names deleted configs;
+- [x] Parent docs: `../docs/baselines/texgen.md` (the config table `:12-30,48` names deleted configs;
   `:53-61` says the flash switch is only on the branch), `../.claude/rules/texgen.md` (deleted configs
   in its commands and Losses; `:38` names the backbone `LightGenPointUVNet`, now upstream's
   `PointUVNet`; `:34,45` name `LightGenSystem` / `lightgen_system.py`, now `texgen_train.py` and
@@ -461,7 +461,7 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
   entry); the stale "main has no flash gate" comments in
   `../evaluation/newdata_eval/run_texgen_infer.py:15-18`, `infer_texgen_v2_venus05.sbatch:6`,
   `sweeps/stage_texgen_host.sh:46`.
-- [ ] Loader pointers (since 8a the loader is `spuv/data/mesh_uv.py` and `spuv/data/lightgen_uv.py`
+- [x] Loader pointers (since 8a the loader is `spuv/data/mesh_uv.py` and `spuv/data/lightgen_uv.py`
   is gone): comments and mirrored constants in
   `../data_processing/data_preparation/{atlas.py:5,contract.py:8,multiview.py:335}` and
   `tests/test_encoding_parity.py:5,17,53`; docs `../data_processing/data_preparation/README.md:45,56`,
@@ -471,12 +471,13 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
   `sweeps/job_texgen.sh`, the smoke command `sweeps/stage_texgen_host.sh` prints) need
   `scripts/convert_config.py` first, as `gate-det.sh` does (the config and, since 8c, the checkpoint:
   `--ckpt`); converting once in `run_texgen_infer.py` covers them all.
-- [ ] From step 16: delete `../evaluation/pointsampled/texgen_infer.py`; `../.claude/rules/texgen.md`
+- [x] From step 16: delete `../evaluation/pointsampled/texgen_infer.py`; `../.claude/rules/texgen.md`
   also names `requirements_125.txt` (`:12`), `LIGHTGEN_WORKFLOW.md` (`:15`), `memory_tracker.py`
   (`:90`), the SequentialSampler fix as working, 12/13 input channels and per-GPU batch 32;
   `../AGENTS.md:228` and `../docs/baselines/texgen.md:5,11` link `LIGHTGEN_WORKFLOW.md` (now gone:
   point at `TEXGen/README.md`).
-- [ ] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too?
+- [x] Decide here: rename the GitHub repository `dongchen-yang/TEXGen` too? Kept: renaming it is a
+  push-side change for Dongchen; the submodule keeps the name `TEXGen` and its URL.
 
 **Instructions:** (Dongchen 2026-10-09: "lets just continue the plan")
 - Runs from a NEW session started at the lightgen root, not from the `refactor` worktree: that
@@ -492,7 +493,11 @@ release, fresh, resume) IDENTICAL; Codex and a three-lens review found no behavi
   the old name).
 - The GitHub repository keeps its name unless Dongchen says otherwise (a push is his call).
 
-**Result:**
+**Result:** `main` fast-forwarded to `refactor` (`463860c`); the directory is `TEXGen-Emission/`, its
+two worktrees repaired. Parent: the rename with the pointer and the local path references; the docs;
+the loader pointers, `texgen_infer.py` retired, `run_texgen_infer.py` converting published runs
+(smoke: the paper checkpoint converted on the fly, 2 shapes IDENTICAL to the 4090 baseline). Codex:
+4 findings (cache key, nested layout, the `_v2` launcher's checkout, a doc claim), all fixed.
 
 ### 18. Cut-over (optional, per D8)
 

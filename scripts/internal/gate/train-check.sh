@@ -20,7 +20,7 @@ if [ "$LOCK" != none ]; then
 fi
 ROOT=${1:?texgen root}; OUT=${2:?out dir}; MODE=${3:?fresh or resume}
 L=${GATE_L:-/local-scratch/localhome/dya78/lightgen_eval_local}
-CKPT=${4:-/local-scratch/localhome/dya78/code/lightgen/TEXGen/outputs/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt}
+CKPT=${4:-/local-scratch/localhome/dya78/code/lightgen/TEXGen-Emission/outputs/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt}
 HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 export TRAINCHECK_ROOT=${TRAINCHECK_ROOT:-$L/refactor_checks/hf_root} TRAINCHECK_OUT=$OUT
 export TEXGEN_TRAINCHECK_OUT=$OUT/record.jsonl

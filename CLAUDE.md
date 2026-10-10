@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**LightGen** is an adaptation of TEXGen (SIGGRAPH Asia 2024) for **emission map generation** — predicting RGB emission maps in UV space given geometry and material properties. It uses Flow Matching diffusion with classifier-free guidance (CLIP conditioning). The codebase lives inside the `TEXGen/` git submodule.
+**LightGen** is an adaptation of TEXGen (SIGGRAPH Asia 2024) for **emission map generation** — predicting RGB emission maps in UV space given geometry and material properties. It uses Flow Matching diffusion with classifier-free guidance (CLIP conditioning). The codebase lives inside the `TEXGen-Emission/` git submodule.
 
 ## Baseline Variants
 
@@ -40,7 +40,7 @@ scores in `../docs/status/checkpoints.md`.
 
 ## Commands
 
-All commands run from `TEXGen/` directory.
+All commands run from the `TEXGen-Emission/` directory.
 
 ### Training
 ```bash
@@ -288,7 +288,7 @@ Two scales coexist. Pick based on the config you're running.
 - Parquet indexing: `df_SomgProc_emission_filtered.parquet`
 - Split file: `data_splits_emission_filtered.json`
 - Overfit split: `overfit_split_single.json` (single sample)
-- Data root: `../data/baked_uv_local_subset/` (relative to `TEXGen/`); on workstation a symlink to `/cs/3dlg-falas/.../somages/v1201_homages_512charts/somages/`. Local copy is ~8.5 GB.
+- Data root: `../data/baked_uv_local_subset/` (relative to `TEXGen-Emission/`); on workstation a symlink to `/cs/3dlg-falas/.../somages/v1201_homages_512charts/somages/`. Local copy is ~8.5 GB.
 
 **74k emissive-complete** (scaled 4-GPU, 2026-04 onwards): **73,251 train / 112 val / 109 test** (74,353-sample emissive-complete pool; val/test pinned to the 1k baseline for direct PSNR comparability).
 

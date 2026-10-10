@@ -14,7 +14,7 @@ GT=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 L=${GATE_L:-/local-scratch/localhome/dya78/lightgen_eval_local}
 C=$L/refactor_checks
 REPO=${GATE_REPO:-/local-scratch/localhome/dya78/code/lightgen}
-CK=${COVERAGE_CKPTS:-$REPO/TEXGen/outputs}
+CK=${COVERAGE_CKPTS:-$REPO/TEXGen-Emission/outputs}
 PCK=$CK/texgen_alpha_74k_v2_agentic/ckpts/epoch=124-step=35500.ckpt
 RCK=$CK/texgen_alpha_lightgenbench_v1/ckpts/epoch=124-step=35625.ckpt
 mkdir -p "$OUT"

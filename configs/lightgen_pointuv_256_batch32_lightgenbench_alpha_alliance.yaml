@@ -99,7 +99,7 @@ data:
   # out of memory on an 80 GB H100 at step ~57 (fir job 60564907, 2026-09-19), hence micro-batch
   # 16 x accumulate 2. When changing either, keep the global batch at 128.
   #
-  # Do NOT re-derive this from the H100 table in TEXGen/CLAUDE.md (static ~14 GB +
+  # Do NOT re-derive this from the H100 table in CLAUDE.md (static ~14 GB +
   # 1.37 GB/sample): that model underestimates on the torch-2.9 stack — it predicted
   # 35.9 GB for micro-batch 16 where an L40S actually peaked at 41.99 GB and OOM'd.
   # A two-point fit of real L40S measurements projected ~65 GB here; the measured

@@ -98,7 +98,7 @@ LOCK_GATE = "/local-scratch/localhome/dya78/.locks/gpu0-rtx4090.lock"   # gate-d
 LOCK_SWEEPS = "/local-scratch/localhome/dya78/lightgen_4090.lock"       # the eval sweeps and hostprobe
 LAB = {  # ckpts: the dir holding <run>/{ckpts,configs}; activate: "" = gate-det.sh's default env
     "local": {"ssh": None, "locks": [LOCK_GATE, LOCK_SWEEPS], "activate": "", "repo": LIGHTGEN,
-              "ckpts": f"{LIGHTGEN}/TEXGen/outputs", "gate": HERE},
+              "ckpts": f"{LIGHTGEN}/TEXGen-Emission/outputs", "gate": HERE},
     "sp4090": {"ssh": "sp4090", "locks": [LOCK_SWEEPS], "activate": f"{C}/tooling/activate_sp4090.sh",
                "repo": f"{C}/tooling/repo", "ckpts": f"{C}/ckpts", "gate": f"{C}/tooling/gate"},
     "xg4090": {"ssh": "xg4090", "locks": [LOCK_SWEEPS], "activate": f"{C}/tooling/activate_xg4090.sh",
