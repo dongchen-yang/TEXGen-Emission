@@ -26,9 +26,8 @@
 # SITE: any machine with 4 x H100 80 GB. No path in this file names a cluster: the data paths
 # read $LIGHTGENBENCH_DATA, and outputs go to outputs/<name>/<tag>/ (checkpoints in its ckpts/;
 # one GPU adds @<time> to the tag) unless exp_root_dir and checkpoint.dirpath are passed on the
-# command line, as the fir launcher does: scripts/internal/fir/train_lightgenbench_alpha_fir.sh.
-# REQUIRED to reproduce: TEXGEN_ENABLE_FLASH=0 in the environment (the launcher sets it, as for
-# every arm of the paper) and the four conditioning pins of requirements.txt (transformers 4.28.1,
+# command line, as our cluster launcher did.
+# REQUIRED to reproduce: TEXGEN_ENABLE_FLASH=0 in the environment (as every arm of the paper ran) and the four conditioning pins of requirements.txt (transformers 4.28.1,
 # diffusers 0.28.0, huggingface_hub 0.25.2, omegaconf 2.3.0).
 #
 # ---- inherited from the alpha baseline config, unchanged ----
@@ -82,8 +81,8 @@ data:
   eval_camera_strategy: "strategy_test_1_to_4_90deg"
 
   # A missing npz does not fail loudly: __getitem__ catches, returns None, and collate_fn
-  # drops it — a split would silently shrink. The launcher therefore counts the unpacked
-  # files against the split before training. All three keys point at ONE file.
+  # drops it — a split would silently shrink. unpack_hf_dataset.sh therefore checks that every
+  # shape of the split is on disk. All three keys point at ONE file.
   train_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
   val_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
   test_indices: "${oc.env:LIGHTGENBENCH_DATA}/data_splits_lightgenbench.json"
@@ -100,8 +99,8 @@ data:
   # out of memory on an 80 GB H100 at step ~57 (fir job 60564907, 2026-09-19), hence micro-batch
   # 16 x accumulate 2. When changing either, keep the global batch at 128.
   #
-  # Do NOT re-derive this from the H100 table in CLAUDE.md (static ~14 GB +
-  # 1.37 GB/sample): that model underestimates on the torch-2.9 stack — it predicted
+  # Do NOT size a run from a static ~14 GB + 1.37 GB/sample model (an earlier H100 sweep):
+  # it underestimates on the torch-2.9 stack — it predicted
   # 35.9 GB for micro-batch 16 where an L40S actually peaked at 41.99 GB and OOM'd.
   # A two-point fit of real L40S measurements projected ~65 GB here; the measured
   # 69.23 GB is close, but the number in this config is the measured one.
