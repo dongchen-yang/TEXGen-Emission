@@ -206,7 +206,8 @@ shows what we changed. A config written before that (every published checkpoint'
 `spuv.systems.lightgen_system.LightGenSystem` and carries `data.use_alpha`, and the checkpoint itself
 pickles the old system class: `python scripts/convert_config.py <old.yaml> <new.yaml>` converts the
 config, `python scripts/convert_config.py --ckpt <old.ckpt> <new.ckpt>` the checkpoint (only its class
-paths are rewritten; ~10 s for 12 GB). Inference reads the config beside the checkpoint
+references in its pickle are rewritten, strings left alone; ~10 s for 12 GB; tests:
+`python -m pytest scripts/internal/tests -q`). Inference reads the config beside the checkpoint
 (`<run>/ckpts/../configs/parsed.yaml`), so write both into a copy of the run directory. The gate and
 the resume check convert into a per-host cache (`scripts/internal/gate/ckpt_for_tree.sh`), and the
 training check counts a class the converter renames as the same class.

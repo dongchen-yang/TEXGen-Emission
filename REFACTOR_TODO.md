@@ -28,6 +28,7 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 17. Merge into `main` and rename to `TEXGen-Emission/` (needs Dongchen's go)
 - [x] 18. Cut-over (optional, per D8): skipped, D8 = stay
 - [x] 19. Release cut: the check tooling leaves the released tree
+- [x] 20. `convert_config.py --ckpt` rewrites only real pickled class references
 
 ## How we work
 
@@ -535,6 +536,22 @@ identical).
 **Result:** Branch `release` (`08d8130`, from `aeb404e`): `scripts/internal/`, `REFACTOR_TODO.md` and
 `CLAUDE.md` removed, README and config comments no longer name them; code files are `main`'s. Its
 tree through `main`'s checks: release and resume IDENTICAL (sp4090), fresh IDENTICAL (L40S, cs-venus-17).
+
+### 20. `convert_config.py --ckpt` rewrites only real pickled class references (Dongchen 2026-10-17)
+
+Found by Codex in the Hunyuan fork's converter, which copied this design: a raw bytes replace in
+`data.pkl` corrupted a pickled string holding the old GLOBAL's bytes, and the "still referenced"
+check aborted on strings that merely name the old path.
+
+- [x] `_rewrite_globals` parses the pickle (`pickletools.genops`) and splices only GLOBAL opcodes
+  that name an old class; a protocol-4 pickle (FRAME or STACK_GLOBAL) that mentions an old module
+  is refused; `--ckpt` refuses src == dst; the count sums over `data.pkl` entries. The copy is still
+  written when nothing changes (`ckpt_for_tree.sh` and the parent's driver expect it).
+- [x] Tests: `scripts/internal/tests/test_convert_config.py` (7).
+
+**Result:** On both published checkpoints the output is sha256-identical to the old implementation's
+(1 class reference each), so no gate result moves. Codex: 2 findings (framed pickles, the count),
+fixed.
 
 ## Later, only if wanted (behavior changes, one step each)
 
