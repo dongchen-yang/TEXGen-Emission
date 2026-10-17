@@ -8,11 +8,12 @@ both name classes and keys the current code no longer has. Convert them before u
 
 Inference reads the config beside the checkpoint (<run>/ckpts/../configs/parsed.yaml), so write the
 results into a copy of the run directory and keep the originals as the record of the run. A
-checkpoint is converted without loading it: only the class paths its pickle names are rewritten, and
-every tensor is copied as stored.
+checkpoint is converted without loading it: its pickle is parsed and only the class references it
+holds (GLOBAL opcodes) are rewritten; strings that name the old paths, and every tensor, stay as stored.
 """
 import argparse
 import os
+import pickletools
 import shutil
 import zipfile
 
@@ -47,26 +48,51 @@ def convert(cfg):
     return cfg
 
 
+def _rewrite_globals(data):
+    """data.pkl with its GLOBAL opcodes (protocol 2, torch.save's default) for the old classes rewritten;
+    returns (new bytes, how many changed). The pickle is parsed and only real opcodes are touched, so a
+    string that happens to hold the same bytes, or names the old class path, is left as it is."""
+    old_modules = {om for om, _ in PICKLED}
+    ops = list(pickletools.genops(data))
+    # protocol 4 frames its payload (a splice would break the frame length) and may name classes with
+    # STACK_GLOBAL; neither is handled, so such a pickle that mentions an old module is refused
+    if any(op.name in ("FRAME", "STACK_GLOBAL") for op, _, _ in ops) and any(m.encode() in data for m in old_modules):
+        raise SystemExit("a protocol-4 pickle (FRAME or STACK_GLOBAL) that mentions an old module: not handled")
+    out, last, n = [], 0, 0
+    for k, (op, arg, pos) in enumerate(ops):
+        if op.name != "GLOBAL":
+            continue
+        new = PICKLED.get(tuple(arg.split(" ", 1)))
+        if new is None:
+            continue
+        end = ops[k + 1][2] if k + 1 < len(ops) else len(data)
+        out += [data[last:pos], f"c{new[0]}\n{new[1]}\n".encode()]
+        last, n = end, n + 1
+    out.append(data[last:])
+    return b"".join(out), n
+
+
 def convert_checkpoint(src, dst):
-    """Copy a torch zip checkpoint, rewriting the GLOBAL class references of its data.pkl (torch.save
-    pickles with protocol 2). Written to <dst>.part, then renamed."""
+    """Copy a torch zip checkpoint, rewriting the class references its data.pkl pickles; returns how many
+    changed. Every other entry is copied as stored. Written to <dst>.part, then renamed."""
+    if os.path.realpath(src) == os.path.realpath(dst):
+        raise SystemExit("--ckpt writes a new file: give <new.ckpt> another path than <old.ckpt>")
     part = dst + ".part"
+    n = 0
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(part, "w", zipfile.ZIP_STORED, allowZip64=True) as zout:
         for info in zin.infolist():
             out = zipfile.ZipInfo(info.filename, date_time=info.date_time)
             out.compress_type = zipfile.ZIP_STORED
             if info.filename.endswith("/data.pkl") or info.filename == "data.pkl":
-                data = zin.read(info)
-                for (om, on), (nm, nn) in PICKLED.items():
-                    data = data.replace(f"c{om}\n{on}\n".encode(), f"c{nm}\n{nn}\n".encode())
-                    if om.encode() in data:
-                        raise SystemExit(f"{src}: {om} is still referenced after the rewrite")
+                data, changed = _rewrite_globals(zin.read(info))
                 zout.writestr(out, data)
+                n += changed
             else:
                 out.file_size = info.file_size
                 with zin.open(info) as fi, zout.open(out, "w", force_zip64=info.file_size > 2**31) as fo:
                     shutil.copyfileobj(fi, fo, 64 << 20)
     os.replace(part, dst)
+    return n
 
 
 def main():
@@ -76,7 +102,8 @@ def main():
     parser.add_argument("dst", help="where to write the converted file")
     args = parser.parse_args()
     if args.ckpt:
-        convert_checkpoint(args.src, args.dst)
+        n = convert_checkpoint(args.src, args.dst)
+        print(f"{n} class reference(s) converted: {args.src} -> {args.dst}")
     else:
         from omegaconf import OmegaConf
         OmegaConf.save(convert(OmegaConf.load(args.src)), args.dst)
