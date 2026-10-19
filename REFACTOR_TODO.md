@@ -30,6 +30,15 @@ the code behind the paper and release runs, generic entry points for LightgenBen
 - [x] 19. Release cut: the check tooling leaves the released tree
 - [x] 20. `convert_config.py --ckpt` rewrites only real pickled class references
 
+Cleanup (2026-10-18): only the code stays, like upstream's repository.
+
+- [x] 21. Check data on the other machines (before step 24: it uses the tooling)
+- [x] 22. Check data on the workstation
+- [x] 23. What CLAUDE.md knows moves to the parent (per D12)
+- [ ] 24. `main` gets the release cut: tag `pre-cleanup`, then the internal files leave (per D11)
+- [ ] 25. Local git leftovers: worktrees, merged branches, generated files
+- [ ] 26. GitHub: tags pushed, retired branches deleted (per D14; needs Dongchen's go)
+
 ## How we work
 
 - One step = one commit with one purpose. Removals and moves never share a commit with a behavior
@@ -162,6 +171,22 @@ python ../evaluation/newdata_eval/compare_pred_dirs.py --a $L/pred_gate_det1_see
 - [x] D10 Internal scripts in the published code (before publishing): `scripts/internal/` holds our
   Slurm accounts and paths. Decided 2026-10-09 (Dongchen): the release drops the check tooling, and
   with it the other internal files (step 19).
+- [x] D11 (before step 24) `main` itself becomes the clean tree: after step 24 its tree is `release`'s,
+  `release` retires, and the tooling lives on at tag `pre-cleanup`. This reverses step 19's "`main`
+  keeps the internal files". Decided 2026-10-18 (Dongchen): clean `main` (not: publish `release`).
+- [x] D12 (before step 23) CLAUDE.md's content: what is still true and still needed moves to the
+  parent's `docs/baselines/texgen.md` (the runs behind the results, the data format and input
+  channels, the DDP sampler and `val/psnr` notes, the `shuffle_orders` seeding note, the `save_top_k`
+  trap, the memory sizing); the rest stays at the tag (the 1k/74k data history, the overfit tables,
+  § Checking a code change). Decided 2026-10-18 (Dongchen): move.
+- [x] D13 (before step 25) The two published checkpoints in `outputs/` (2 × 12.4 GB, the gate's
+  local copies). Decided 2026-10-18 (Dongchen): keep them as the local cache AGENTS.md describes.
+- [x] D14 (before step 26) GitHub: delete the branches `release`, `restructure-2026-09-16` (in
+  `main`'s history; tag `archive/restructure-2026-09-16` keeps the name the docs cite) and
+  `texgen-74k-v2-vulcan` (= tag `archive/texgen-74k-v2-vulcan`, already pushed); keep
+  `texgen-74k-v2-venus05` (Keep stable 9); push the tags `pre-refactor`, `checks-tooling`,
+  `pre-cleanup` and the `archive/` ones (docs cite them; today the first two are local only).
+  Decided 2026-10-18 (Dongchen): yes, as listed; the push itself still waits for his go at step 26.
 
 ## Done
 
@@ -553,6 +578,117 @@ check aborted on strings that merely name the old path.
 (1 class reference each), so no gate result moves. Codex: 2 findings (framed pickles, the count),
 fixed.
 
+## Cleanup: only the code stays (steps 21–26)
+
+Dongchen 2026-10-18: "eventually, we want a clean repo like the original repo"; "just remove the
+unneeded or testing files that we generated or the gated files". Files only: no code file changes.
+
+Where it stands: branch `release` (`d8b8f6a`) is the clean tree already (step 19). `main`
+(`bed1e8f`, on GitHub) still has 24 internal files: `scripts/internal/` (`gate/` 17, `fir/` 4,
+`tests/` 1), `REFACTOR_TODO.md`, `CLAUDE.md`. Apart from those, `main` and `release` differ only in the
+README's `scripts/internal/` row and three config comments. The check data sits outside the repo
+on the workstation, star2, the Solar nodes and the lab 4090s.
+
+- Work in the main checkout on `main`. One commit per step where git changes. Outside git: list
+  each path with its size, confirm it is TEXGen's check data and nothing live reads it (`git grep`
+  in the parent; on 2026-10-18 only `scripts/internal/` did), then delete it. Each step waits for
+  Dongchen's go.
+- Checks: steps 21, 22 and 25 change no tracked file; 23 is docs. Step 24 deletes files and edits
+  comments: `git diff release main` must come out empty, the config must resolve and
+  `python launch.py --help` must run. No GPU check: the code files are byte-identical to
+  `release`'s, which passed release, resume and fresh in step 19.
+- From step 24 on this file is gone (its last version is at tag `pre-cleanup`): Results go to the
+  commit messages and the TEXGen entry of `../docs/status/refactor.md`.
+- Parent commits stage only their own hunks (`AGENTS.md` carries another session's edit).
+
+### 21. Check data on the other machines (before step 24)
+
+- [x] No checks job is running: `ssh star2 "squeue --me -h -o '%i %j %T %N'"`, none named
+  `refactor_checks_*`.
+- [x] Solar `/localscratch/dya78/refactor_checks` and `/localscratch/dya78/tmp/tc.*`: list with
+  `python3 scripts/internal/gate/fanout.py --solar_clean cs-venus-15,cs-venus-16,cs-venus-17,cs-venus-18,cs-venus-20 --plan`.
+  `--solar_clean` removes only `out/*` on our three nodes (~30 GB staging per node stays), so delete
+  there with the same 1-CPU `srun -w <node> --immediate=60` job and the full `rm` it runs on the
+  theia-lab nodes.
+- [x] star2 home `~/refactor_checks/` (staged trees, tooling, `paper_root/`, `hf_root/`, `out/`).
+- [x] sp4090 (and xg4090 if it was ever staged): `/local-scratch/localhome/dya78/lightgen_eval_local/refactor_checks/`
+  (tooling, a repo copy, checkpoint copies, `paper_root/`). The copied `texgen` env stays.
+
+**Instructions:** Dongchen 2026-10-18: "go 21–25".
+
+**Result:** Deleted: Solar `refactor_checks/` on cs-venus-15/16/17/18 (~114 GB; `solar_clean` with the full
+`rm` on every node; no `tc.*` left, cs-venus-20 empty), star2 `~/refactor_checks/` (3.5 GB), sp4090's
+(52 GB). xg4090 was never staged (not admitted, still unresolvable). Log `../log/20261018-213021-texgen-cleanup-solar.log`.
+
+### 22. Check data on the workstation
+
+- [x] `/local-scratch/localhome/dya78/lightgen_eval_local/refactor_checks/` (42 GB: `ckpt_cache/` 24,
+  `ckpt_test/` 12, `paper_root/` 3.3, `hf/` 1.6, the rest under 1).
+- [x] The older TEXGen gate outputs beside it: `pred_gate_*_seed00/` (10 dirs, ~480 MB, among them the
+  4090 baseline `pred_gate_det1_seed00`) and `gate_{final,fold}_different.txt`. A later check would
+  rebuild its baselines from tag `pre-refactor` (step 7's recipe).
+- Stays: the eval lists (`test_agentic_clean.txt`, `val_agentic_clean.txt`), every other `pred_*`,
+  the other lanes' `*_refactor_checks/`, the parent's `log/`.
+
+**Instructions:**
+
+**Result:** Deleted `refactor_checks/`, the 10 `pred_gate_*_seed00/` and both `gate_*_different.txt` (42 GB; no
+process or live file used them). `/local-scratch` 301 → 345 GB free.
+
+### 23. What CLAUDE.md knows moves to the parent (per D12)
+
+- [x] Its still-true sections go to `../docs/baselines/texgen.md` (shortened, nothing restated that
+  the README says).
+- [x] References that name `TEXGen-Emission/CLAUDE.md` point there: `../.claude/rules/texgen.md:15`,
+  `../AGENTS.md:230`, `../docs/baselines/texgen.md:5`. Historical logs keep the old name
+  (`../evaluation/newdata_eval/EXECUTION_LOG.md`).
+- One parent commit, docs only.
+
+**Instructions:**
+
+**Result:** Four sections in `../docs/baselines/texgen.md` (runs, code map, data contract, traps), checked
+against the code and by Codex (6 of 8 findings applied); rule and index repointed. Parent `625e630`.
+
+### 24. `main` gets the release cut (per D11)
+
+- [ ] Tag `pre-cleanup` on the last commit that has the internal files (this file's final version).
+- [ ] Delete `scripts/internal/`, `REFACTOR_TODO.md`, `CLAUDE.md`; take `release`'s README row and config
+  comments. Then `git diff release main` is empty.
+- [ ] Parent, one commit: the pointer, and the fir-launcher references as tag paths
+  (`git -C TEXGen-Emission show pre-cleanup:scripts/internal/fir/<file>`):
+  `../docs/baselines/texgen.md:26`, `../docs/evaluation.md:1089`; the TEXGen entry of
+  `../docs/status/refactor.md` (still lists steps 18 and 19 as open).
+- The converter keeps working without its tests (`scripts/internal/tests/`), as on `release`.
+
+**Instructions:**
+
+**Result:**
+
+### 25. Local git leftovers
+
+- [ ] Worktrees `refactor` (= `main`) and `release` (= `main`'s tree after 24): check clean, then
+  `git worktree remove`. `texgen-v2` and its branch stay (Keep stable 9), and with it the
+  `.claude/worktrees/` ignore rule.
+- [ ] Branches: tag `archive/release` and `archive/restructure-2026-09-16`, then delete the local
+  `refactor`, `release`, `restructure-2026-09-16`.
+- [ ] Generated files (ignored, not in git): every `__pycache__/`, `.pytest_cache/`, the leftover
+  `tests/` (only `__pycache__/` inside), and the two run stubs without checkpoints
+  `outputs/texgen_alpha_74k_v2/`, `outputs/texgen_alpha_74k_v2_nonzero_nocopy/` (a `parsed.yaml`
+  each, one `SHA256SUMS.pulled`). The two checkpoints per D13.
+
+**Instructions:**
+
+**Result:**
+
+### 26. GitHub (per D14; a push, needs Dongchen's go)
+
+- [ ] The submodule first: push `main` and the tags, delete the remote branches D14 names. Then the
+  parent (its pointer), so a fresh clone always finds the gitlink.
+
+**Instructions:**
+
+**Result:**
+
 ## Later, only if wanted (behavior changes, one step each)
 
 - [ ] **Flash default.** An unset `TEXGEN_ENABLE_FLASH` means on (`texgen_network.py:49`); both
@@ -570,3 +706,7 @@ fixed.
 
 The position frame (atlas decoded as [−2, 2], voxels in [−0.5, 0.5]): a data-format change, tracked
 in `../docs/status/refactor.md`.
+
+Rewriting git history. Steps 21–26 clean the tree, not the history: `main`'s public history keeps
+the internal files (our Slurm launchers and paths) and our 254 commits above upstream's 11. A
+squashed history would change every commit id the parent's gitlinks and the docs cite.
