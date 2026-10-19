@@ -129,7 +129,6 @@ classes: convert its config and checkpoint first with `scripts/convert_config.py
 | `launch.py`, `inference_specific_samples.py` | training and test entry point; inference on chosen shapes |
 | `scripts/lightgenbench/` | `unpack_hf_dataset.sh`: the Hugging Face dataset to the data folder |
 | `scripts/convert_config.py` | older config and checkpoint class names to the current ones |
-| `scripts/internal/` | our cluster launchers and regression checks; not needed to use the code |
 
 ## Citation
 
