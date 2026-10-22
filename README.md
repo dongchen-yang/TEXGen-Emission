@@ -22,10 +22,6 @@ pip install -r requirements.txt
 
 # Set these before training and prediction: the dense attention branch, and less memory fragmentation
 export TEXGEN_ENABLE_FLASH=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
-# The CLIP text encoder comes from a gated Hugging Face model: accept its terms at
-# https://huggingface.co/stabilityai/stable-diffusion-3.5-large, then log in
-huggingface-cli login
 ```
 
 

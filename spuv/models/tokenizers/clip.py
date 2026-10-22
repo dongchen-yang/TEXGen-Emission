@@ -17,7 +17,7 @@ from ...utils.typing import *
 class ClipTokenizer(BaseModule):
     @dataclass
     class Config(BaseModule.Config):
-        pretrained_model_name_or_path: str = "lambdalabs/sd-image-variations-diffusers"
+        pretrained_model_name_or_path: str = "lambda/sd-image-variations-diffusers"
 
     cfg: Config
 
@@ -27,7 +27,8 @@ class ClipTokenizer(BaseModule):
         pretrained_model_name_or_path = self.cfg.pretrained_model_name_or_path
 
         from transformers import CLIPTextModel, CLIPTokenizer
-        text_tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-3.5-large",
+        # CLIP-L text encoder and tokenizer: SDXL's copy holds the same weights as SD 3.5's
+        text_tokenizer = CLIPTokenizer.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0",
                                                        subfolder="tokenizer")
         self.register_non_module(
             "text_tokenizer",
@@ -36,7 +37,7 @@ class ClipTokenizer(BaseModule):
 
         self.register_non_module(
             "text_encoder",
-            CLIPTextModel.from_pretrained("stabilityai/stable-diffusion-3.5-large", 
+            CLIPTextModel.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0",
                                          subfolder="text_encoder").to(
                 self.device, dtype=self.weight_dtype
             ),
@@ -107,7 +108,7 @@ class ClipTokenizer(BaseModule):
 
         text_encoder = self.non_module("text_encoder")
 
-        # local [B, 77, 768] - SD 3.5 CLIP-L has 768-dim embeddings
+        # local [B, 77, 768] - CLIP-L has 768-dim embeddings
         # text_embeddings = text_encoder(prompt_ids)[0].to(self.device, dtype=self.weight_dtype)
         # global [B, 768] - pooled text embedding
         text_embeddings = text_encoder(prompt_ids)[1].to(self.device, dtype=self.weight_dtype)

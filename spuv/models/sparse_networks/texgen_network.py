@@ -406,11 +406,11 @@ class ConditionEmbedding(nn.Module):
         self.clip_condition = clip_condition
         if clip_condition:
             if double_condition:
-                # SD 3.5 CLIP outputs 768-dim text embeddings (not 1024)
+                # CLIP-L outputs 768-dim text embeddings (not 1024)
                 self.emb = CombinedTimestepClipEmbeddings(clip_embedding_dim=[768, 768],
                                                           embedding_dim=1024)
             else:
-                # For single condition, also use 768 to match SD 3.5 CLIP
+                # For single condition, also use 768 to match CLIP-L
                 self.emb = CombinedTimestepClipEmbeddings(clip_embedding_dim=768,
                                                           embedding_dim=1024)
         else:

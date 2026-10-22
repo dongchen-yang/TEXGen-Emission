@@ -101,7 +101,7 @@ system:
 
   image_tokenizer_cls: spuv.models.tokenizers.clip.ClipTokenizer
   image_tokenizer:
-    pretrained_model_name_or_path: "lambdalabs/sd-image-variations-diffusers"
+    pretrained_model_name_or_path: "lambda/sd-image-variations-diffusers"
 
   backbone_cls: spuv.models.sparse_networks.texgen_network.PointUVNet
   backbone:

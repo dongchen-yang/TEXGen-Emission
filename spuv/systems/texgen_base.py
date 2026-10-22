@@ -117,7 +117,7 @@ class TEXGenDiffusion(BaseSystem):
 
         # Important re-configuration
         temp_noise_scheduler = DDPMScheduler.from_pretrained(
-            "lambdalabs/sd-image-variations-diffusers", subfolder="scheduler",
+            "lambda/sd-image-variations-diffusers", subfolder="scheduler",
             prediction_type=self.prediction_type,
             rescale_betas_zero_snr=self.cfg.rescale_betas_zero_snr
         )
