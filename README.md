@@ -38,7 +38,7 @@ export LIGHTGENBENCH_DATA=<data_dir>
 
 
 ## Prediction with Our Checkpoint
-This needs the Environment Setup and Data Setup above; our checkpoint is coming soon in the Hugging Face repo `3dlg-hcvc/LightgenBench-baselines`.
+This needs the Environment Setup and Data Setup above; our checkpoint is in the Hugging Face repo [`3dlg-hcvc/LightgenBench-baselines`](https://huggingface.co/3dlg-hcvc/LightgenBench-baselines/tree/main/TEXGen-Emission).
 Predict the emission of the test split with it; the script writes predictions to `<out_dir>`.
 ```bash
 # Download our checkpoint and its config into checkpoints/TEXGen-Emission/
