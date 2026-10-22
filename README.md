@@ -22,6 +22,10 @@ pip install -r requirements.txt
 
 # Set these before training and prediction: the dense attention branch, and less memory fragmentation
 export TEXGEN_ENABLE_FLASH=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# The CLIP text encoder comes from a gated Hugging Face model: accept its terms at
+# https://huggingface.co/stabilityai/stable-diffusion-3.5-large, then log in
+huggingface-cli login
 ```
 
 
@@ -37,8 +41,28 @@ export LIGHTGENBENCH_DATA=<data_dir>
 ```
 
 
+## Prediction with Our Checkpoint
+This needs the Environment Setup and Data Setup above; our checkpoint is coming soon in the Hugging Face repo `3dlg-hcvc/LightgenBench-baselines`.
+Predict the emission of the test split with it; the script writes predictions to `<out_dir>`.
+```bash
+# Download our checkpoint and its config into checkpoints/TEXGen-Emission/
+huggingface-cli download 3dlg-hcvc/LightgenBench-baselines --include "TEXGen-Emission/*" --local-dir checkpoints
+
+# List the test shapes
+python -c "import json, sys; print('\n'.join(json.load(open(sys.argv[1]))['test']))" \
+    <download_dir>/splits.json > test_uuids.txt
+
+# Predict the test shapes
+python inference_specific_samples.py \
+    --ckpt checkpoints/TEXGen-Emission/ckpts/texgen-emission.ckpt \
+    --data_root "$LIGHTGENBENCH_DATA/texgen_root" --parquet "$LIGHTGENBENCH_DATA/df_lightgenbench.parquet" \
+    --shas_file test_uuids.txt --out_dir <out_dir> --seed 0
+```
+Score the predictions with the LightGenBench evaluation: https://github.com/3dlg-hcvc/lightgenbench
+
+
 ## Training
-Train with the LightGenBench config.
+The network trains from scratch, not from TEXGen's weights; only its CLIP image and text encoders are pretrained, and they download from Hugging Face on first use and stay frozen.
 Checkpoints go to `outputs/lightgen/texgen_alpha_lightgenbench_v1/ckpts/`, and the same command resumes from the last one.
 ```bash
 # Train on 4 GPUs (global batch 128)
@@ -50,31 +74,13 @@ python launch.py --config configs/lightgen_pointuv_256_batch32_lightgenbench_alp
 ```
 
 
-## Prediction
-Predict the test split with a checkpoint from training (choose it on the validation split); the script writes predictions to `<out_dir>`.
-It reads the model's config from the run folder, so keep the checkpoint in its `ckpts/` folder.
+## Prediction with Your Checkpoint
+The same as Prediction with Our Checkpoint, with a checkpoint from Training (choose it on the validation split).
+The script reads the model's config from the run folder, so keep the checkpoint in its `ckpts/` folder.
 ```bash
-# List the test shapes
-python -c "import json, sys; print('\n'.join(json.load(open(sys.argv[1]))['test']))" \
-    <download_dir>/splits.json > test_uuids.txt
-
-# Predict the test shapes
+# Predict the test shapes (test_uuids.txt as in Prediction with Our Checkpoint)
 python inference_specific_samples.py \
     --ckpt outputs/lightgen/texgen_alpha_lightgenbench_v1/ckpts/<checkpoint>.ckpt \
-    --data_root "$LIGHTGENBENCH_DATA/texgen_root" --parquet "$LIGHTGENBENCH_DATA/df_lightgenbench.parquet" \
-    --shas_file test_uuids.txt --out_dir <out_dir> --seed 0
-```
-Score the predictions with the LightGenBench evaluation: https://github.com/3dlg-hcvc/lightgenbench
-
-### With our checkpoint
-Our checkpoint replaces the Training section; it is coming soon in the Hugging Face repo `3dlg-hcvc/LightgenBench-baselines`.
-```bash
-# Download the checkpoint and its config into checkpoints/TEXGen-Emission/
-huggingface-cli download 3dlg-hcvc/LightgenBench-baselines --include "TEXGen-Emission/*" --local-dir checkpoints
-
-# Predict the test shapes (test_uuids.txt as above)
-python inference_specific_samples.py \
-    --ckpt checkpoints/TEXGen-Emission/ckpts/texgen-emission.ckpt \
     --data_root "$LIGHTGENBENCH_DATA/texgen_root" --parquet "$LIGHTGENBENCH_DATA/df_lightgenbench.parquet" \
     --shas_file test_uuids.txt --out_dir <out_dir> --seed 0
 ```
