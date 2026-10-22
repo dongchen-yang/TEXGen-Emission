@@ -66,6 +66,24 @@ python inference_specific_samples.py \
 ```
 Score the predictions with the LightGenBench evaluation: https://github.com/3dlg-hcvc/lightgenbench
 
+### With our checkpoint
+Our checkpoint replaces the Training section and was trained with `configs/lightgen_pointuv_256_batch32_lightgenbench_alpha.yaml`.
+Put it in the run folder training writes, with that config as `configs/parsed.yaml` beside `ckpts/`, and the prediction command above runs with only `--ckpt` filled in.
+```bash
+# Our checkpoint (coming soon): the Checkpoint column of https://github.com/3dlg-hcvc/lightgenbench#baselines
+mkdir -p outputs/lightgen/texgen_alpha_lightgenbench_v1/{ckpts,configs}
+# Download <our checkpoint>.ckpt into outputs/lightgen/texgen_alpha_lightgenbench_v1/ckpts/
+
+# The config, where prediction reads it
+cp configs/lightgen_pointuv_256_batch32_lightgenbench_alpha.yaml outputs/lightgen/texgen_alpha_lightgenbench_v1/configs/parsed.yaml
+
+# Predict the test shapes (test_uuids.txt as above)
+python inference_specific_samples.py \
+    --ckpt outputs/lightgen/texgen_alpha_lightgenbench_v1/ckpts/<our checkpoint>.ckpt \
+    --data_root "$LIGHTGENBENCH_DATA/texgen_root" --parquet "$LIGHTGENBENCH_DATA/df_lightgenbench.parquet" \
+    --shas_file test_uuids.txt --out_dir <out_dir> --seed 0
+```
+
 
 ## License
 TEXGen's code has no license from its authors, so they keep all rights to it; our changes in this fork are released under the MIT license.
