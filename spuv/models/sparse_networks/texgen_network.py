@@ -29,9 +29,8 @@ from spuv.utils.mesh_utils import uv_padding
 from spuv.utils.misc import time_recorder as tr
 
 # Escape hatch for GPUs where flash-attn is unavailable. flash-attn 2.x targets
-# Ampere/Ada/Hopper; on RTX PRO 6000 Blackwell (sm_120) the source build ran ~45 min
-# in job 236972 and ~65 min in 237121 and left flash_attn unimportable both times
-# (verified independently by job 237198).
+# Ampere/Ada/Hopper; on Blackwell (sm_120) its source build can leave flash_attn
+# unimportable.
 #
 # TEXGEN_ENABLE_FLASH=0 selects the dense attention branch that already exists at
 # ptv3_model_texgen.py:401-418. Two differences worth knowing, neither of which
@@ -41,7 +40,6 @@ from spuv.utils.misc import time_recorder as tr
 #   * windowing differs — the flash branch uses a fixed patch_size, the dense branch
 #     sets patch_size=0 and attends over min(patch_size_max, n_points), so a short
 #     point set gets a full window instead of a padded one.
-# Record the deviation in the run notes whenever this is used.
 #
 # An env var rather than a config key is deliberate: UVPTVAttnStage.__init__ accepts
 # **kwargs but drops them when constructing UV_DitBlock, so a config-driven flag

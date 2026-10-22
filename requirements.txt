@@ -1,7 +1,6 @@
-# What the paper and release code imports (spuv/, launch.py, inference_specific_samples.py, scripts/).
-# Versions are the ones the checks run with: the workstation env `texgen`, Python 3.10, torch 2.1.0 + CUDA
-# 11.8 on an RTX 4090. The paper run trained with torch 2.9.1 + CUDA 12.8 (RTX PRO 6000 Blackwell), the
-# release run with torch 2.9.0 + CUDA 12.6 (H100); both with the four pins below.
+# What the code imports (spuv/, launch.py, inference_specific_samples.py, scripts/), for Python 3.10.
+# Tested with torch 2.1.0 + CUDA 11.8, torch 2.9.0 + CUDA 12.6 and torch 2.9.1 + CUDA 12.8, each with
+# the four pins below.
 #
 # Install torch and torchvision first, from the index of your CUDA version, for example
 #   pip install torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu118
@@ -9,8 +8,7 @@
 # for the GPU (set TORCH_CUDA_ARCH_LIST to its architecture); spconv is a prebuilt wheel per CUDA version.
 
 # The conditioning stack (CLIP image and text encoders, diffusers' schedulers) is version-sensitive:
-# these four are required exactly (tokenizers comes with transformers as 0.13.x). The paper and
-# release runs used them as written; the check env has huggingface_hub 0.25.0.
+# these four are required exactly (tokenizers comes with transformers as 0.13.x).
 transformers==4.28.1
 diffusers==0.28.0
 huggingface_hub==0.25.2

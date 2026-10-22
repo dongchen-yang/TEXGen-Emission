@@ -280,7 +280,7 @@ def main(args, extras) -> None:
                 # NOTE: wandb_config['dir'] must be resolved BEFORE this cleanup so we
                 # search the same directory that the previous run wrote its cache to.
                 #
-                # TWO GUARDS, both learned the hard way on cs-venus-05 (run yylyobx0):
+                # TWO GUARDS:
                 #
                 # 1. OFFLINE: in offline mode the local cache is not a stale artifact, it
                 #    IS the run's only copy of the data. Deleting it on every resume throws
@@ -290,7 +290,7 @@ def main(args, extras) -> None:
                 # 2. RANK: all four ranks execute main(), so without a rank guard ranks
                 #    1..3 run this cleanup a moment after rank 0 has created the live
                 #    directory — and since the glob keys on the run id, which they share,
-                #    they delete the directory rank 0 is actively writing. Observed as a
+                #    they delete the directory rank 0 is actively writing, leaving a
                 #    dangling wandb/latest-run symlink with no target and zero data on disk.
                 _offline = os.environ.get("WANDB_MODE", "").lower() in ("offline", "dryrun")
                 _lrank = int(os.environ.get("LOCAL_RANK",
@@ -344,14 +344,14 @@ def main(args, extras) -> None:
             # LOCAL_RANK is checked FIRST and that order is load-bearing. SLURM_LOCALID
             # is set per *task*: under Lightning's native DDP spawn (one task, four
             # spawned children) every child inherits the parent's SLURM_LOCALID=0, so
-            # all four ranks believed they were rank 0, all four called define_metric(),
-            # and the three that never ran wandb.init() died with "You must call
-            # wandb.init() before wandb.define_metric()" — killing the job (vulcan
-            # 217672, 2026-07-29). Lightning's subprocess launcher sets LOCAL_RANK
-            # per child, so it is the truthful value when it exists.
+            # all four ranks would believe they are rank 0, all four would call
+            # define_metric(), and the three that never ran wandb.init() would die with
+            # "You must call wandb.init() before wandb.define_metric()", killing the job.
+            # Lightning's subprocess launcher sets LOCAL_RANK per child, so it is the
+            # truthful value when it exists.
             #
             # Under the srun path (ntasks == devices) LOCAL_RANK is unset here and this
-            # falls back to SLURM_LOCALID, preserving the original fir behaviour exactly.
+            # falls back to SLURM_LOCALID.
             _local_rank = int(os.environ.get("LOCAL_RANK",
                               os.environ.get("SLURM_LOCALID", "0")))
             if _local_rank == 0:

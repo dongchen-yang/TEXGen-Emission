@@ -32,11 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def sample_seed(sha: str, seed: int) -> int:
-    """Per-shape RNG seed for `(sha, seed)`. Order-, batch- and skip-independent.
-
-    VERBATIM COPY of evaluation/newdata_eval/seedutil.py in the parent lightgen repo, duplicated
-    because this repo is cloned standalone on cs-venus-05. Keep the copies byte-identical.
-    """
+    """Per-shape RNG seed for `(sha, seed)`. Order-, batch- and skip-independent."""
     return int.from_bytes(hashlib.sha256(f"{sha}:{seed}".encode()).digest()[:8], "big")
 
 
