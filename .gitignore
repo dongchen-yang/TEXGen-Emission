@@ -26,3 +26,6 @@ videos/
 
 # Agent worktrees — checkouts of this same repo, never source
 .claude/worktrees/
+
+# our checkpoints, downloaded as the README says
+checkpoints/
