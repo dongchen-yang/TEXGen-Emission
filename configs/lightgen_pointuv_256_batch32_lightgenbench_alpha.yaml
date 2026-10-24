@@ -1,4 +1,4 @@
-# TEXGen for emission on LightgenBench (Hugging Face 3dlg-hcvc/LightgenBench: 36,426 train /
+# TEXGen for emission on LightGenBench (Hugging Face 3dlg-hcvc/LightgenBench: 36,426 train /
 # 200 val / 200 test).
 #
 # Paths: the data paths read $LIGHTGENBENCH_DATA (see the data block). Outputs go to
@@ -27,7 +27,7 @@ seed: 42
 # Resume on requeue / job restart.
 auto_resume: true
 
-# Data: the LightgenBench release, laid out under $LIGHTGENBENCH_DATA by
+# Data: the LightGenBench release, laid out under $LIGHTGENBENCH_DATA by
 # scripts/lightgenbench/unpack_hf_dataset.sh:
 #   - texgen_root/<uuid>/somage.npz      (the release's <uuid>/atlas.npz, renamed as it
 #     is unpacked; same keys and encoding as somage.npz, plus alpha)
@@ -191,4 +191,4 @@ wandb:
   project: "LightGen"
   name: "texgen_alpha_lightgenbench_v1"
   tags: ["baseline", "from_scratch", "lightgenbench", "release_split", "alpha_cond"]
-  notes: "TEXGen for emission on LightgenBench"
+  notes: "TEXGen for emission on LightGenBench"
